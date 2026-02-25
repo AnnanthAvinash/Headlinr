@@ -1,0 +1,16 @@
+---
+description: Always present a plan and wait for user approval before making any changes
+alwaysApply: true
+---
+
+# Plan Before Implement
+
+Before making ANY code changes (edits, new files, deletions, refactors, fixes), you MUST:
+
+1. **Present your plan** — Explain what you intend to do, which files will be affected, and why.
+2. **Wait for explicit approval** — Do NOT proceed until the user confirms (e.g. "yes", "go ahead", "approved").
+3. **Only then implement** — After approval, carry out exactly what was agreed upon.
+
+This applies in **every mode** (Agent, Plan, Debug, Ask) and for **every task**, no matter how small.
+
+If the user asks a pure question with no code changes needed, you may answer directly without approval.
