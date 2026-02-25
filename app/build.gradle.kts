@@ -54,6 +54,10 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.extended)
+
+    // DataStore (for app prefs)
+    implementation(libs.datastore.preferences)
 
     // Hilt
     implementation(libs.hilt.android)

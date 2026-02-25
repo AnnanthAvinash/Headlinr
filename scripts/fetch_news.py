@@ -128,27 +128,69 @@ CATEGORY_SORT_ORDER = {
 # ---------------------------------------------------------------------------
 
 SOURCE_NORMALIZE = {
-    "toi": "times_of_india",
-    "times of india": "times_of_india",
-    "the times of india": "times_of_india",
-    "et": "economic_times",
-    "economic times": "economic_times",
-    "the economic times": "economic_times",
-    "ndtv": "ndtv",
-    "ndtv news": "ndtv",
-    "ndtv.com": "ndtv",
-    "bbc": "bbc",
-    "bbc news": "bbc",
-    "bbc world": "bbc",
-    "bbc.com": "bbc",
-    "cnn": "cnn",
-    "cnn news": "cnn",
-    "cnn.com": "cnn",
-    "reuters": "reuters",
-    "reuters.com": "reuters",
-    "the hindu": "the_hindu",
-    "hindustan times": "hindustan_times",
-    "india today": "india_today",
+    # Indian sources
+    "toi": "Times of India",
+    "times of india": "Times of India",
+    "the times of india": "Times of India",
+    "timesofindia.indiatimes.com": "Times of India",
+    "timesofindia.com": "Times of India",
+    "et": "Economic Times",
+    "economic times": "Economic Times",
+    "the economic times": "Economic Times",
+    "economictimes.indiatimes.com": "Economic Times",
+    "economictimes.com": "Economic Times",
+    "ndtv": "NDTV",
+    "ndtv news": "NDTV",
+    "ndtv.com": "NDTV",
+    "the hindu": "The Hindu",
+    "thehindu.com": "The Hindu",
+    "hindustan times": "Hindustan Times",
+    "hindustantimes.com": "Hindustan Times",
+    "india today": "India Today",
+    "indiatoday.in": "India Today",
+    "livemint.com": "Mint",
+    "mint": "Mint",
+    "firstpost.com": "Firstpost",
+    "moneycontrol.com": "Moneycontrol",
+    "news18.com": "News18",
+    "theprint.in": "The Print",
+    "scroll.in": "Scroll",
+    "thewire.in": "The Wire",
+    "indianexpress.com": "Indian Express",
+    "dnaindia.com": "DNA India",
+    "zeenews.india.com": "Zee News",
+    "aajtak.in": "Aaj Tak",
+    # International sources
+    "bbc": "BBC",
+    "bbc news": "BBC",
+    "bbc world": "BBC",
+    "bbc.com": "BBC",
+    "bbc.co.uk": "BBC",
+    "cnn": "CNN",
+    "cnn news": "CNN",
+    "cnn.com": "CNN",
+    "reuters": "Reuters",
+    "reuters.com": "Reuters",
+    "theguardian.com": "The Guardian",
+    "the guardian": "The Guardian",
+    "nytimes.com": "NY Times",
+    "washingtonpost.com": "Washington Post",
+    "aljazeera.com": "Al Jazeera",
+    "apnews.com": "AP News",
+    "foxnews.com": "Fox News",
+    "cnbc.com": "CNBC",
+    "techcrunch.com": "TechCrunch",
+    "theverge.com": "The Verge",
+    "wired.com": "Wired",
+    "arstechnica.com": "Ars Technica",
+    "engadget.com": "Engadget",
+    "bloomberg.com": "Bloomberg",
+    "forbes.com": "Forbes",
+    "businessinsider.com": "Business Insider",
+    "espn.com": "ESPN",
+    "skysports.com": "Sky Sports",
+    "cricbuzz.com": "Cricbuzz",
+    "espncricinfo.com": "ESPNcricinfo",
 }
 
 
@@ -159,7 +201,14 @@ def normalize_category(raw: str) -> str:
 
 def normalize_source(raw: str) -> str:
     key = raw.strip().lower()
-    return SOURCE_NORMALIZE.get(key, key.replace(" ", "_").replace(".", "_"))
+    if key in SOURCE_NORMALIZE:
+        return SOURCE_NORMALIZE[key]
+    # Fallback: clean up domain-style names → readable display name
+    # e.g., "news.sky.com" → "News Sky", "abcnews.go.com" → "Abcnews Go"
+    clean = key.replace("www.", "").replace(".com", "").replace(".co.uk", "")
+    clean = clean.replace(".in", "").replace(".org", "").replace(".net", "")
+    clean = clean.replace(".", " ").replace("_", " ").replace("-", " ")
+    return clean.strip().title() if clean.strip() else "Unknown"
 
 
 def make_article_id(title: str, source: str) -> str:
@@ -225,14 +274,13 @@ def fetch_currentsapi_latest() -> list[dict]:
 
         raw_cats = item.get("category", [])
         raw_cat = raw_cats[0] if raw_cats else "general"
-        source_raw = item.get("author") or ""
-        if not source_raw:
-            article_url = item.get("url") or ""
-            try:
-                from urllib.parse import urlparse
-                source_raw = urlparse(article_url).netloc.replace("www.", "")
-            except Exception:
-                source_raw = "unknown"
+
+        article_url = item.get("url") or ""
+        try:
+            from urllib.parse import urlparse
+            source_raw = urlparse(article_url).netloc.replace("www.", "")
+        except Exception:
+            source_raw = "unknown"
 
         source_norm = normalize_source(source_raw)
         article_id = make_article_id(title, source_norm)
@@ -260,7 +308,7 @@ def fetch_newsdata_category(category: str) -> list[dict]:
         return []
 
     url = "https://newsdata.io/api/1/latest"
-    params = {"apikey": NEWSDATA_KEY, "language": "en", "category": category}
+    params = {"apikey": NEWSDATA_KEY, "language": "en", "country": "in", "category": category}
 
     try:
         resp = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)

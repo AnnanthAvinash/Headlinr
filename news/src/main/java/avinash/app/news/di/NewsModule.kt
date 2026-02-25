@@ -5,6 +5,7 @@ import androidx.room.Room
 import avinash.app.news.api.NewsRepository
 import avinash.app.news.internal.local.NewsDatabase
 import avinash.app.news.internal.local.dao.ArticleDao
+import avinash.app.news.internal.local.dao.BookmarkDao
 import avinash.app.news.internal.local.dao.CategoryDao
 import avinash.app.news.internal.repository.NewsRepositoryImpl
 import com.google.firebase.firestore.FirebaseFirestore
@@ -50,4 +51,7 @@ object NewsProvidesModule {
 
     @Provides
     fun provideCategoryDao(db: NewsDatabase): CategoryDao = db.categoryDao()
+
+    @Provides
+    fun provideBookmarkDao(db: NewsDatabase): BookmarkDao = db.bookmarkDao()
 }
