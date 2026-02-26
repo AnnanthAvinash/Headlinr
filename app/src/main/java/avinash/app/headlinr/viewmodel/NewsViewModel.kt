@@ -80,6 +80,10 @@ class NewsViewModel @Inject constructor(
     val bookmarks: StateFlow<List<NewsArticle>> = newsRepository.getBookmarks()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    val bookmarkedIds: StateFlow<Set<String>> = newsRepository.getBookmarks()
+        .map { list -> list.map { it.id }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptySet())
+
     private val _recentSearches = MutableStateFlow<List<String>>(emptyList())
     val recentSearches: StateFlow<List<String>> = _recentSearches.asStateFlow()
 
@@ -160,6 +164,10 @@ class NewsViewModel @Inject constructor(
 
     fun observeBookmark(articleId: String): Flow<Boolean> {
         return newsRepository.observeIsBookmarked(articleId)
+    }
+
+    suspend fun getArticleById(articleId: String): NewsArticle? {
+        return newsRepository.getArticleById(articleId)
     }
 
     private fun findArticleById(articleId: String): NewsArticle? {

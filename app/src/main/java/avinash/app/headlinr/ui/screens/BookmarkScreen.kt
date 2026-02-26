@@ -29,7 +29,7 @@ import avinash.app.headlinr.viewmodel.NewsViewModel
 @Composable
 fun BookmarkScreen(
     viewModel: NewsViewModel,
-    onArticleClick: (articleUrl: String, articleId: String) -> Unit
+    onArticleClick: (articleId: String) -> Unit
 ) {
     val bookmarks by viewModel.bookmarks.collectAsState()
 
@@ -69,7 +69,9 @@ fun BookmarkScreen(
                 items(bookmarks, key = { it.id }) { article ->
                     ArticleCard(
                         article = article,
-                        onClick = { onArticleClick(article.articleUrl, article.id) },
+                        isBookmarked = true,
+                        onClick = { onArticleClick(article.id) },
+                        onBookmarkClick = { viewModel.toggleBookmark(article.id) },
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
                 }

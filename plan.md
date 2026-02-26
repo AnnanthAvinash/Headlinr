@@ -29,17 +29,21 @@ The module reads news articles and categories from **Firebase Firestore** and se
 │  ┌─────────────┐                ┌─────────────┐             │
 │  │ currentsapi  │                │ newsdata.io │             │
 │  │ (freshness)  │                │ (volume)    │             │
-│  └──────┬──────┘                ├─────────────┤             │
-│         │                        │contextualweb│             │
-│         │                        │ (coverage)  │             │
-│         │                        └──────┬──────┘             │
-│         └──────────┬────────────────────┘                    │
+│  ├─────────────┤                ├─────────────┤             │
+│  │ RSS feeds   │                │contextualweb│             │
+│  │ (16 feeds,  │                │ (coverage)  │             │
+│  │  parallel,  │                └──────┬──────┘             │
+│  │  free)      │                       │                    │
+│  └──────┬──────┘                       │                    │
+│         └──────────┬───────────────────┘                    │
 │                    ▼                                         │
 │         ┌──────────────────────┐                             │
 │         │ Normalize categories │                             │
 │         │ Normalize sources    │                             │
-│         │ Deduplicate (hash)   │                             │
-│         │ Filter already-known │                             │
+│         │ Validate images ≥600 │                             │
+│         │ Deduplicate (3-layer)│                             │
+│         │ AI keyword filter    │                             │
+│         │ Measure feed quality │                             │
 │         └──────────┬───────────┘                             │
 │                    ▼                                         │
 │         ┌──────────────────────┐                             │
@@ -48,6 +52,8 @@ The module reads news articles and categories from **Firebase Firestore** and se
 │         │  │ news_articles   │  │                             │
 │         │  ├────────────────┤  │                             │
 │         │  │ categories      │  │                             │
+│         │  ├────────────────┤  │                             │
+│         │  │ rss_metrics     │  │  ← admin-only monitoring   │
 │         │  └────────────────┘  │                             │
 │         └──────────────────────┘                             │
 │                    +                                         │
@@ -93,7 +99,7 @@ Resets daily at midnight Pacific Time. Exceeding = shut off until next day (no b
 
 | Resource | Limit | Our Usage | % Used | Source |
 |----------|-------|-----------|--------|--------|
-| Minutes (private repo) | 2,000/month | 750/month | 37.5% | docs.github.com/billing |
+| Minutes (private repo) | 2,000/month | 1,440/month | 72% | docs.github.com/billing |
 | Minutes (public repo) | Unlimited | — | — | docs.github.com/billing |
 
 ### News API Providers
@@ -103,12 +109,13 @@ Resets daily at midnight Pacific Time. Exceeding = shut off until next day (no b
 | currentsapi.services | 1,000 req/day | 48/day | 4.8% | Near real-time | **VERIFY before launch** |
 | newsdata.io | 200 credits/day (=2,000 articles) | 18 credits/day | 9% | **12 hours** | **YES** (confirmed) |
 | contextualweb.io | 10,000 req/month | 540/month | 5.4% | Unknown | **VERIFY before launch** |
+| RSS feeds (16) | **Unlimited** | 768/day | **Free** | Real-time | N/A (public feeds) |
 
 ### Capacity
 
 ```
 ~2,600 daily active users on free tier (₹0/month)
-~30 minutes data freshness (from currentsapi)
+~30 minutes data freshness (from currentsapi + RSS)
 ```
 
 ---
@@ -392,7 +399,9 @@ other (newsdata)           →  general              newsdata
 TIER 1 (every 30 min — freshness):
   currentsapi → /v1/latest-news?language=en
   1 call → ~40 articles across all categories
-  Purpose: trending/latest news
+  RSS feeds → 16 feeds in parallel (free, no API keys)
+  ~400-500 articles across 8 categories + AI keyword filter
+  Purpose: trending/latest news + India-focused category coverage
 
 TIER 2 (every 4 hours — category fill):
   newsdata.io → /api/1/latest?category=sports&language=en         (1 credit)
@@ -636,6 +645,20 @@ categories/{slug}                    ← ID = slug itself
 └── sortOrder: number                ← display order
 ```
 
+### Collection: `rss_metrics` (admin-only, app does NOT read this)
+
+```
+rss_metrics/{hash(feedUrl)[:16]}
+├── category: string                 ← normalized slug
+├── title: string                    ← source display name
+├── rssUrl: string                   ← feed URL
+├── totalHit: number                 ← total articles found
+├── successHit: number               ← articles passing all filters
+├── successRatio: number             ← (successHit / totalHit) × 100
+├── qualityPercent: number           ← weighted quality score
+└── evaluatedAt: Timestamp           ← server timestamp
+```
+
 ### Required Composite Indexes
 
 | Fields | Order | Purpose |
@@ -831,8 +854,62 @@ Daily totals:
   currentsapi:    48 calls/day   (4.8% of 1,000)
   newsdata.io:    18 credits/day (9% of 200)
   contextualweb:  18 calls/day   (5.4% of 333/day)
-  GitHub Actions: ~25 min/day    (750 min/month = 37.5% of 2,000)
-  Firebase writes: ~660/day      (3.3% of 20,000)
+  RSS feeds:      768 fetches/day (free, no limits)
+  GitHub Actions: ~48 min/day    (1,440 min/month = 72% of 2,000)
+  Firebase writes: ~1,100/day    (5.5% of 20,000)
+```
+
+### RSS Feeds — 16 Verified Feeds (Tier 1, every 30 min)
+
+RSS feeds are free (no API keys, no rate limits) and run on every execution alongside currentsapi.
+All feeds verified for: accessibility (HTTP 200), image quality (≥600px width), no thumbnails, no placeholders.
+
+```
+CATEGORY         SOURCE               URL                                                        IMG SIZE    ITEMS  SCOPE
+─────────        ──────               ───                                                        ────────    ─────  ─────
+national         The Hindu            thehindu.com/news/national/feeder/default.rss               1200x675    100    India
+national         Indian Express       indianexpress.com/section/india/feed/                       1600x900    200    India
+national         News18               news18.com/rss/india.xml                                    1200x800    200    India
+entertainment    Bollywood Hungama    bollywoodhungama.com/rss/news.xml                           620x450     50     India
+entertainment    News18               news18.com/rss/movies.xml                                   1200x800    200    India
+entertainment    Koimoi               koimoi.com/feed/                                            1200x630    20     India
+technology       Indian Express       indianexpress.com/section/technology/feed/                   1600x900    200    India
+technology       YourStory            yourstory.com/feed                                          1012-2000   20     India
+technology       The Verge            theverge.com/rss/index.xml                                  1303x868    10     Global
+sports           Indian Express       indianexpress.com/section/sports/feed/                      1600x900    200    India
+sports           The Hindu            thehindu.com/sport/feeder/default.rss                       1200x675    100    India
+business         Indian Express       indianexpress.com/section/business/feed/                    1600x900    200    India
+business         The Hindu            thehindu.com/business/feeder/default.rss                    1200x675    100    India
+world            Indian Express       indianexpress.com/section/world/feed/                       1600x900    200    India lens
+world            The Hindu            thehindu.com/news/international/feeder/default.rss          1200x675    100    India lens
+science          The Hindu            thehindu.com/sci-tech/science/feeder/default.rss            1200x675    100    India
+```
+
+**AI — Virtual keyword-filtered category** (no dedicated feed):
+After fetching tech feeds, articles matching keywords (AI, Artificial Intelligence, Machine Learning, OpenAI, GPT, LLM, ChatGPT, Gemini, Claude, DeepSeek, Neural Network, Deep Learning, Copilot) are cloned into the `ai` category.
+
+### RSS Quality Metrics (Firestore: `rss_metrics`)
+
+Each run measures feed quality and stores metrics for admin monitoring:
+
+```
+Collection: rss_metrics
+Document ID: hash(feedUrl)[:16]
+
+{
+  category,          // normalized slug
+  title,             // source display name
+  rssUrl,            // feed URL
+  totalHit,          // total articles in feed
+  successHit,        // articles passing all filters
+  successRatio,      // (successHit / totalHit) × 100
+  qualityPercent,    // weighted score (image 40% + desc 30% + dedup 10% + reachable 10% + 10 base)
+  evaluatedAt        // server timestamp
+}
+
+Minimum acceptable qualityPercent: 75
+Feeds below 75 are flagged but NOT blocked.
+Only feeds with status "disabled" (set manually) are skipped.
 ```
 
 ### Category Normalization (in GitHub Actions)
@@ -849,6 +926,7 @@ entertainment, bollywood       →  entertainment
 business, economy, finance     →  business
 health, medical, wellness      →  health
 science, space, environment    →  science
+politics                       →  politics
 top, general, other, (unknown) →  general
 
 Unknown slug → passes through as-is → creates new category automatically
@@ -858,24 +936,35 @@ Unknown slug → passes through as-is → creates new category automatically
 
 ```
 RAW SOURCE NAME                →  NORMALIZED
-TOI, Times of India            →  times_of_india
-ET, Economic Times             →  economic_times
-NDTV, NDTV News                →  ndtv
-BBC, BBC News, BBC World       →  bbc
+TOI, Times of India            →  Times of India
+ET, Economic Times             →  Economic Times
+NDTV, NDTV News                →  NDTV
+BBC, BBC News, BBC World       →  BBC
+News18, www.news18.com         →  News18
+Bollywood Hungama              →  Bollywood Hungama
+Koimoi                         →  Koimoi
+YourStory                      →  YourStory
+The Verge                      →  The Verge
 ```
 
-### Deduplication
+### Deduplication (3 layers + Firestore safety net)
 
 ```
-Document ID = SHA-256(lowercase(trim(title)) + lowercase(normalized_source))
+Layer 1 — Article ID hash:
+  ID = SHA-256(lowercase(trim(title)) + lowercase(normalized_source))[:32]
+  Same title + same source = same ID = skipped
 
-Firebase set() with document ID:
-  → Same article = same ID = overwrites (no duplicate)
-  → New article = new ID = created
+Layer 2 — URL dedup (new, for RSS):
+  Normalize URL: strip www., query params, trailing slash
+  Hash normalized URL → skip if seen in this run
+  Catches same article URL appearing across multiple feeds
 
-Pre-write filter:
-  → Compare generated IDs with last_article_ids cache (GitHub Actions artifact)
-  → Write ONLY new articles → saves Firebase writes
+Layer 3 — Cross-run cache:
+  .article_cache.json stores IDs from previous runs (max 5000)
+  Before Firebase upload → skip if ID already in cache
+
+Firestore safety net:
+  Firebase set() with document ID → overwrites, never creates duplicate
 ```
 
 ---
@@ -1139,16 +1228,17 @@ MUST DO:
 │  SERVICE               LIMIT            USAGE       % USED     │
 │  ───────               ─────            ─────       ──────     │
 │  Firebase reads        50,000/day       1,900       3.8%       │
-│  Firebase writes       20,000/day       660         3.3%       │
-│  Firebase deletes      20,000/day       200         1.0%       │
-│  Firebase storage      1 GiB            1 MB        0.1%       │
-│  Firebase egress       10 GiB/month     300 MB      2.9%       │
-│  GitHub Actions        2,000 min/month  750 min     37.5%      │
+│  Firebase writes       20,000/day       1,100       5.5%       │
+│  Firebase deletes      20,000/day       400         2.0%       │
+│  Firebase storage      1 GiB            2-3 MB      0.3%       │
+│  Firebase egress       10 GiB/month     500 MB      4.9%       │
+│  GitHub Actions        2,000 min/month  1,440 min   72%        │
 │  currentsapi           1,000/day        48          4.8%       │
 │  newsdata.io           200 credits/day  18          9.0%       │
 │  contextualweb         10,000/month     540         5.4%       │
+│  RSS feeds (16)        Unlimited        768/day     FREE       │
 │                                                                │
-│  ALL LIMITS UNDER 40%. MASSIVE SAFETY BUFFER.                  │
+│  ALL WITHIN FREE TIER. ZERO COST.                              │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -1170,4 +1260,4 @@ MUST DO:
 | **9** | Demo app — ViewModel + screens + components | `app` | `NewsViewModel.kt`, `NewsListScreen.kt`, `NewsDetailScreen.kt`, `NewsCard.kt`, `CategoryTabRow.kt`, `ShimmerPlaceholder.kt`, `ErrorRetryCard.kt` |
 | **10** | Demo app — AdMob integration | `app` | `NativeAdCard.kt`, `BannerAdView.kt`, `AdManager.kt` |
 | **11** | Demo app — wiring, navigation, offline states | `app` | `MainActivity.kt` |
-| **12** | GitHub Actions — two-tier workflow with normalization + dedup | repo root | `.github/workflows/fetch-news.yml`, `scripts/fetch_news.py` |
+| **12** | GitHub Actions — two-tier workflow with normalization + dedup + RSS feeds + quality metrics | repo root | `.github/workflows/fetch-news.yml`, `scripts/fetch_news.py`, `scripts/requirements.txt` |

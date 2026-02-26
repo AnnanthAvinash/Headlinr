@@ -37,10 +37,11 @@ import avinash.app.headlinr.viewmodel.NewsViewModel
 @Composable
 fun HomeScreen(
     viewModel: NewsViewModel,
-    onArticleClick: (articleUrl: String, articleId: String) -> Unit
+    onArticleClick: (articleId: String) -> Unit
 ) {
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val trendingArticles by viewModel.trendingArticles.collectAsState()
+    val bookmarkedIds by viewModel.bookmarkedIds.collectAsState()
     val articles = viewModel.articles.collectAsLazyPagingItems()
 
     PullToRefreshBox(
@@ -80,7 +81,7 @@ fun HomeScreen(
                         items(trendingArticles, key = { it.id }) { article ->
                             TrendingCard(
                                 article = article,
-                                onClick = { onArticleClick(article.articleUrl, article.id) }
+                                onClick = { onArticleClick(article.id) }
                             )
                         }
                     }
@@ -137,8 +138,10 @@ fun HomeScreen(
                         articles[index]?.let { article ->
                             ArticleCard(
                                 article = article,
-                                onClick = { onArticleClick(article.articleUrl, article.id) },
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                                isBookmarked = article.id in bookmarkedIds,
+                                onClick = { onArticleClick(article.id) },
+                                onBookmarkClick = { viewModel.toggleBookmark(article.id) },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                             )
                         }
                     }

@@ -35,7 +35,7 @@ data class BottomNavItem(
 @Composable
 fun MainScreen(
     viewModel: NewsViewModel,
-    onArticleClick: (articleUrl: String, articleId: String) -> Unit
+    onArticleClick: (articleId: String) -> Unit
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()

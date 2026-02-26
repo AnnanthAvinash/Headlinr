@@ -56,7 +56,7 @@ import avinash.app.headlinr.viewmodel.NewsViewModel
 @Composable
 fun SearchScreen(
     viewModel: NewsViewModel,
-    onArticleClick: (articleUrl: String, articleId: String) -> Unit
+    onArticleClick: (articleId: String) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -274,9 +274,10 @@ private fun SearchDefaultContent(
 @Composable
 private fun SearchResults(
     viewModel: NewsViewModel,
-    onArticleClick: (articleUrl: String, articleId: String) -> Unit
+    onArticleClick: (articleId: String) -> Unit
 ) {
     val searchResults = viewModel.searchResults.collectAsLazyPagingItems()
+    val bookmarkedIds by viewModel.bookmarkedIds.collectAsState()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -321,8 +322,10 @@ private fun SearchResults(
                     searchResults[index]?.let { article ->
                         ArticleCard(
                             article = article,
-                            onClick = { onArticleClick(article.articleUrl, article.id) },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            isBookmarked = article.id in bookmarkedIds,
+                            onClick = { onArticleClick(article.id) },
+                            onBookmarkClick = { viewModel.toggleBookmark(article.id) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                         )
                     }
                 }

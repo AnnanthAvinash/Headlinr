@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import avinash.app.headlinr.ui.screens.ArticleDetailScreen
 import avinash.app.headlinr.ui.screens.CategorySelectScreen
 import avinash.app.headlinr.ui.screens.MainScreen
 import avinash.app.headlinr.ui.screens.SplashScreen
@@ -50,9 +51,26 @@ fun AppNavigation() {
         composable("main") {
             MainScreen(
                 viewModel = viewModel,
-                onArticleClick = { url, id ->
+                onArticleClick = { articleId ->
+                    navController.navigate("detail/$articleId")
+                }
+            )
+        }
+
+        composable(
+            route = "detail/{articleId}",
+            arguments = listOf(
+                navArgument("articleId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val articleId = backStackEntry.arguments?.getString("articleId") ?: ""
+            ArticleDetailScreen(
+                articleId = articleId,
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onReadMore = { url ->
                     val encoded = URLEncoder.encode(url, "UTF-8")
-                    navController.navigate("webview/$encoded/$id")
+                    navController.navigate("webview/$encoded/$articleId")
                 }
             )
         }

@@ -35,4 +35,7 @@ interface ArticleDao {
 
     @Query("SELECT * FROM articles WHERE title LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%' OR sourceName LIKE '%' || :query || '%' ORDER BY publishedAt DESC")
     fun searchArticles(query: String): PagingSource<Int, ArticleEntity>
+
+    @Query("SELECT * FROM articles WHERE id = :id LIMIT 1")
+    suspend fun getArticleById(id: String): ArticleEntity?
 }

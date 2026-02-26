@@ -12,6 +12,7 @@ interface NewsRepository {
     suspend fun refreshNews(): Result<Unit>
     suspend fun refreshCategories(): Result<Unit>
 
+    suspend fun getArticleById(id: String): NewsArticle?
     suspend fun getTrendingArticles(limit: Int = 10): List<NewsArticle>
     fun searchArticles(query: String): Flow<PagingData<NewsArticle>>
 
