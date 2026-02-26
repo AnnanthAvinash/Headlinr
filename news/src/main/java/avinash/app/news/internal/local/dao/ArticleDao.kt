@@ -30,10 +30,24 @@ interface ArticleDao {
     @Query("DELETE FROM articles WHERE cachedAt < :threshold")
     suspend fun deleteOlderThan(threshold: Long)
 
+    @Query(
+        "DELETE FROM articles WHERE cachedAt < :threshold " +
+        "AND category IN (" +
+        "SELECT category FROM articles GROUP BY category HAVING COUNT(*) >= :minCount" +
+        ")"
+    )
+    suspend fun deleteStaleFromLargeCategories(threshold: Long, minCount: Int = 100)
+
     @Query("SELECT * FROM articles WHERE category = 'trending' ORDER BY publishedAt DESC LIMIT :limit")
     suspend fun getTrendingArticles(limit: Int = 10): List<ArticleEntity>
 
-    @Query("SELECT * FROM articles WHERE title LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%' OR sourceName LIKE '%' || :query || '%' ORDER BY publishedAt DESC")
+    @Query(
+        "SELECT * FROM articles WHERE title LIKE '%' || :query || '%' " +
+        "OR category LIKE '%' || :query || '%' " +
+        "OR description LIKE '%' || :query || '%' " +
+        "OR sourceName LIKE '%' || :query || '%' " +
+        "ORDER BY publishedAt DESC"
+    )
     fun searchArticles(query: String): PagingSource<Int, ArticleEntity>
 
     @Query("SELECT * FROM articles WHERE id = :id LIMIT 1")

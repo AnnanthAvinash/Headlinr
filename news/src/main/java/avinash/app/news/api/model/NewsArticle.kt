@@ -8,5 +8,6 @@ data class NewsArticle(
     val articleUrl: String,
     val publishedAt: Long,
     val sourceName: String,
-    val category: String
+    val category: String,
+    val quality: String = "high"
 )

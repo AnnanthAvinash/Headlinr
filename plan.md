@@ -111,10 +111,27 @@ Resets daily at midnight Pacific Time. Exceeding = shut off until next day (no b
 | contextualweb.io | 10,000 req/month | 540/month | 5.4% | Unknown | **VERIFY before launch** |
 | RSS feeds (16) | **Unlimited** | 768/day | **Free** | Real-time | N/A (public feeds) |
 
-### Capacity
+### Capacity (Revised — based on real sync math)
 
 ```
-~2,600 daily active users on free tier (₹0/month)
+Firebase Spark free tier: 50,000 reads/day
+GitHub Actions cleanup overhead: ~2,400 reads/day
+Available for app users: ~47,600 reads/day
+
+USER TYPE          SESSION   PULLS  AUTO-REFRESHES  READS/DAY
+Light (15 min)     15 min    1      0               ~78
+Normal (1 hr)      1 hr      2      1               ~168
+Heavy (3-4 hr)     3 hr      5      5               ~438
+Power (8 hr)       8 hr      10     16              ~828
+First-time (full)  30 min    1      0               ~348
+
+MAX DAILY ACTIVE USERS ON FREE TIER:
+  All light:       610 DAU
+  All normal/mid:  283 DAU
+  All heavy:       108 DAU
+  Realistic mix (60% light + 30% normal + 10% heavy): ~363 DAU
+  Early stage (10-20 users): ~13% of free tier used
+
 ~30 minutes data freshness (from currentsapi + RSS)
 ```
 
@@ -700,6 +717,9 @@ interface ArticleDao {
     @Query("SELECT MAX(publishedAt) FROM articles")
     suspend fun getNewestTimestamp(): Long?
 
+    @Query("SELECT COUNT(*) FROM articles")
+    suspend fun getCount(): Int
+
     @Upsert
     suspend fun upsertAll(articles: List<ArticleEntity>)
 
@@ -708,6 +728,31 @@ interface ArticleDao {
 
     @Query("DELETE FROM articles WHERE cachedAt < :threshold")
     suspend fun deleteOlderThan(threshold: Long)
+
+    // Smart delete: only prune categories with 100+ articles (thin categories keep all content)
+    @Query(
+        "DELETE FROM articles WHERE cachedAt < :threshold " +
+        "AND category IN (" +
+        "SELECT category FROM articles GROUP BY category HAVING COUNT(*) >= :minCount" +
+        ")"
+    )
+    suspend fun deleteStaleFromLargeCategories(threshold: Long, minCount: Int = 100)
+
+    @Query("SELECT * FROM articles WHERE category = 'trending' ORDER BY publishedAt DESC LIMIT :limit")
+    suspend fun getTrendingArticles(limit: Int = 10): List<ArticleEntity>
+
+    // Search matches: title, category slug, description, sourceName
+    @Query(
+        "SELECT * FROM articles WHERE title LIKE '%' || :query || '%' " +
+        "OR category LIKE '%' || :query || '%' " +
+        "OR description LIKE '%' || :query || '%' " +
+        "OR sourceName LIKE '%' || :query || '%' " +
+        "ORDER BY publishedAt DESC"
+    )
+    fun searchArticles(query: String): PagingSource<Int, ArticleEntity>
+
+    @Query("SELECT * FROM articles WHERE id = :id LIMIT 1")
+    suspend fun getArticleById(id: String): ArticleEntity?
 }
 
 @Dao
@@ -753,26 +798,29 @@ APP OPENS
   ▼
 Check lastSyncTimestamp (DataStore)
   │
-  ├── Never synced OR gap > 7 days:
+  ├── Never synced OR gap > 24 hours:
   │     → deleteAll() from Room
-  │     → Full sync: fetch latest 100 from Firebase
-  │
-  ├── Gap > 24 hours:
-  │     → deleteAll() from Room
-  │     → Full sync: fetch latest 100 from Firebase
+  │     → Full sync: fetch latest 300 from Firebase (MAX_SYNC_CAP)
+  │     → 300 Firebase reads — fills all categories on first open
   │
   └── Gap < 24 hours:
         → Incremental sync: fetch articles WHERE publishedAt > lastSync
+        → BATCH_SIZE = 30 articles per fetch
   │
   ▼
-SYNC EXECUTION (batched, crash-proof):
+ROOM CLEANUP (after every sync):
   │
-  BATCH 1: Fetch 50 newest → upsert Room → UI shows immediately (2-3 sec)
-  BATCH 2: Fetch next 50 → upsert Room → background, silent
-  STOP when: batch returns < 50 OR total >= 100 (MAX_SYNC_CAP)
+  Smart delete: only delete articles older than 7 days FROM categories with 100+ articles
+  Thin categories (gaming, food, tourism, etc.) NEVER lose content
   │
   ▼
 Update lastSyncTimestamp = now
+  │
+  ▼
+AUTO-REFRESH (while app in foreground):
+  Every 30 minutes → silent incremental sync (30 articles)
+  Matches GitHub Actions schedule — always picks up the latest batch
+  Uses viewModelScope → auto-cancelled when app goes to background
   │
   ▼
 CATEGORIES SYNC (once per day):
@@ -804,21 +852,30 @@ Host app's UI handles:
 ### Sync Safety Guards
 
 ```
-GUARD 1: Minimum sync interval = 5 minutes
-  If lastSync < 5 min ago → skip → use Room cache
+GUARD 1: Pull-to-refresh cooldown = 10 minutes
+  If lastSync < 10 min ago → skip → use Room cache
+  Prevents user from spamming Firebase reads
 
-GUARD 2: Max sync cap = 100 articles per sync
-  Prevents one user consuming thousands of reads
+GUARD 2: Max sync cap (full sync) = 300 articles
+  Only on first open or after 24h gap
+  300 reads = good content depth across all categories
 
-GUARD 3: Categories sync = once per day
-  15 reads instead of 15 per app open
+GUARD 3: Incremental batch size = 30 articles
+  Matches ~30 min of new content from GitHub Actions
+  Keeps each sync lightweight
 
-GUARD 4: Batch size = 50
-  Max 50 articles in memory at any time
-  Prevents OOM on low-end devices
+GUARD 4: Auto-refresh interval = 30 minutes
+  Matches GitHub Actions schedule (no point refreshing faster)
+  Silent — no spinner, no error toast
+  Only runs while app is in foreground (viewModelScope)
 
-GUARD 5: "Load older" = user-triggered only
-  No auto-fetch beyond cap
+GUARD 5: Categories sync = once per day
+  ~18 reads instead of 18 per app open
+
+GUARD 6: Smart Room retention
+  Only delete 7-day-old articles from categories with 100+ articles
+  Thin categories (gaming, food, tourism) keep all content forever
+  Prevents empty category screens
 ```
 
 ---
@@ -976,42 +1033,65 @@ Firestore safety net:
 ```
 SCENARIO A: Opens app 30 min after last use
   → Room shows cached data instantly
-  → Quick sync: ~5 new articles from Firebase (5 reads)
+  → Quick incremental sync: ~30 new articles from Firebase
   → UI refreshes in 2 seconds
   → Everything feels live
 
 SCENARIO B: Opens app after 3 days
   → Room wiped (gap > 24h)
   → Shimmer loading for 2-3 seconds
-  → Sync fetches 100 articles (2 batches)
-  → Full fresh feed ready
-  → Firebase reads: 100
+  → Full sync: 300 articles from Firebase
+  → Full fresh feed ready across all categories
+  → Firebase reads: 300
 
 SCENARIO C: Opens app with no internet
   → Room serves whatever is cached (could be hours/days old)
   → UI shows "Offline — showing cached articles"
-  → All browsing, scrolling, categories still work
+  → All browsing, scrolling, category switching still work
   → Pull to refresh shows "No connection"
 
 SCENARIO D: First install ever
   → Room empty → shimmer loading
-  → Full sync: 100 articles from Firebase
+  → Full sync: 300 articles from Firebase
   → Takes 3-5 seconds
+  → All categories populated immediately
   → All subsequent opens are instant
 
-SCENARIO E: User scrolls through all cached articles
-  → After all articles: "You're all caught up"
-  → Optional: "Load older articles" button (user-triggered, 50 reads)
+SCENARIO E: User keeps app open for hours
+  → Auto-refresh every 30 min silently fetches ~30 new articles
+  → New content appears at the top of the feed
+  → User scrolls and always finds fresh content
+  → After 8 hours: ~780 articles in Room (very rich feed)
+
+SCENARIO F: User scrolls through all cached articles in one category
+  → "You're all caught up" in that category
+  → Switch to another category via chips → fresh content there
+  → Pull to refresh may bring more if GitHub Actions added new articles
+```
+
+### Content Strength (how much user sees vs Firebase)
+
+```
+TIME IN APP        ARTICLES IN ROOM    FIREBASE TOTAL    COVERAGE
+First open         300                 ~2,500            12%
+After 2 hours      360                 ~2,500            14%
+After 8 hours      780                 ~2,500            31%
+After 24 hours     1,740               ~2,500            70%
+Day 2+             ~2,000+             ~2,500            80%+
+Per category avg   17-100+             ~140              growing
+Thin categories    never deleted       always content    no empty screens
 ```
 
 ### Freshness Summary
 
 ```
-Firebase updated:     Every 30 minutes (by GitHub Actions)
-App sync:             On every app open (if > 5 min since last sync)
-Worst-case staleness: ~30 minutes (article age in Firebase) + time since last app open
-Best-case staleness:  ~30 minutes + 2-3 seconds
-Offline:              Serves cached data, never crashes
+Firebase updated:      Every 30 minutes (by GitHub Actions)
+App sync (open):       On every app open (if > 10 min since last sync)
+App sync (auto):       Every 30 min while app is in foreground
+Pull-to-refresh:       User-triggered, 10-min cooldown
+Worst-case staleness:  ~60 min (if user just missed auto-refresh + GitHub Actions)
+Best-case staleness:   ~30 min + 2-3 seconds
+Offline:               Serves cached data, never crashes
 ```
 
 ---
@@ -1221,31 +1301,161 @@ MUST DO:
 ┌────────────────────────────────────────────────────────────────┐
 │                                                                │
 │  FRESHNESS:      ~30 minutes                                   │
-│  DAU CAPACITY:   ~2,600 users                                  │
+│  DAU CAPACITY:   ~283-363 users (free tier)                    │
 │  MONTHLY COST:   ₹0                                            │
 │  ONE-TIME COST:  ₹2,082 (Play Store developer account)         │
 │                                                                │
-│  SERVICE               LIMIT            USAGE       % USED     │
-│  ───────               ─────            ─────       ──────     │
-│  Firebase reads        50,000/day       1,900       3.8%       │
-│  Firebase writes       20,000/day       1,100       5.5%       │
-│  Firebase deletes      20,000/day       400         2.0%       │
-│  Firebase storage      1 GiB            2-3 MB      0.3%       │
-│  Firebase egress       10 GiB/month     500 MB      4.9%       │
-│  GitHub Actions        2,000 min/month  1,440 min   72%        │
-│  currentsapi           1,000/day        48          4.8%       │
-│  newsdata.io           200 credits/day  18          9.0%       │
-│  contextualweb         10,000/month     540         5.4%       │
-│  RSS feeds (16)        Unlimited        768/day     FREE       │
+│  SERVICE               LIMIT            USAGE          % USED  │
+│  ───────               ─────            ─────          ──────  │
+│  Firebase reads        50,000/day       ~1,908/user    varies  │
+│  Firebase writes       20,000/day       ~1,100         5.5%    │
+│  Firebase deletes      20,000/day       400            2.0%    │
+│  Firebase storage      1 GiB            2-3 MB         0.3%    │
+│  Firebase egress       10 GiB/month     500 MB         4.9%    │
+│  GitHub Actions        2,000 min/month  1,440 min      72%     │
+│  currentsapi           1,000/day        48             4.8%    │
+│  newsdata.io           200 credits/day  18             9.0%    │
+│  contextualweb         10,000/month     540            5.4%    │
+│  RSS feeds (16)        Unlimited        768/day        FREE    │
 │                                                                │
-│  ALL WITHIN FREE TIER. ZERO COST.                              │
+│  Firebase reads breakdown (per user/day, normal usage):        │
+│    First open (incremental):    30 reads                       │
+│    Auto-refresh (48× @ 30/ea):  1,440 reads                   │
+│    Manual pull (~5×):           150 reads                      │
+│    Category sync:               18 reads                       │
+│    Total per user:              ~1,638 reads/day               │
+│                                                                │
+│  DAU capacity:                                                 │
+│    10 users:   ~16,380 reads (33% of limit)                    │
+│    50 users:   ~81,900 — EXCEEDS (need Blaze ≈ $0.02/day)     │
+│    100 normal: ~16,800 reads (34% — fits easily)               │
+│    283 normal: ~47,600 reads (95% — ceiling)                   │
+│    363 mixed:  ~47,600 reads (95% — ceiling)                   │
+│                                                                │
+│  ALL WITHIN FREE TIER AT LAUNCH. ZERO COST.                    │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 21. Implementation Phases
+## 21. Category UI Integration (DONE)
+
+### Changes Implemented
+
+```
+1. ArticleDao.searchArticles — now searches: title, category, description, sourceName
+   File: news/.../dao/ArticleDao.kt
+
+2. CategoryIcons.kt — maps 18 category slugs to Material Icons
+   File: app/.../util/CategoryIcons.kt (NEW)
+   trending→TrendingUp, national→AccountBalance, politics→Gavel,
+   business→BusinessCenter, technology→Computer, ai→SmartToy,
+   sports→SportsScore, entertainment→Movie, health→HealthAndSafety,
+   science→Biotech, world→Public, gaming→SportsEsports,
+   education→School, crime→LocalFireDepartment, food→Fastfood,
+   tourism→FlightTakeoff, opinion→MenuBook, general→Article
+
+3. NewsViewModel — category filtering wired up
+   File: app/.../viewmodel/NewsViewModel.kt
+   - allCategories: all categories from Room
+   - userCategories: filtered to onboarding selections
+   - activeCategory: currently selected category chip (null = "All")
+   - selectCategory(slug): called when user taps a chip
+   - articles flow reacts to activeCategory changes
+   - loadSelectedCategorySlugs(): reads onboarding prefs on init
+   - saveSelectedCategories(): also updates live state
+
+4. HomeScreen — horizontal category chip bar
+   File: app/.../ui/screens/HomeScreen.kt
+   - FilterChip LazyRow below Breaking News carousel
+   - First chip: "All" (Dashboard icon)
+   - Remaining: user's onboarding categories (per-category icons)
+   - Selected chip: primary color
+   - Section title changes to match active category name
+```
+
+---
+
+## 22. Near Real-Time Sync (DONE)
+
+### Implemented Changes
+
+```
+STATUS: IMPLEMENTED
+
+1. ArticleDao.kt — added deleteStaleFromLargeCategories query
+   Smart delete: only prunes categories with 100+ articles
+   Thin categories never lose content
+
+2. SyncManager.kt — updated sync parameters
+   MIN_SYNC_INTERVAL_MS:  5 min → 10 min (pull-to-refresh cooldown)
+   BATCH_SIZE:            50 (kept at 50 — matches ~50-80 new articles per 30 min)
+   MAX_SYNC_CAP:          100 → 300 (first open gets rich content)
+   MIN_CATEGORY_RETENTION: 100
+   Replaced deleteOlderThan() with deleteStaleFromLargeCategories()
+
+3. NewsViewModel.kt — added auto-refresh timer
+   AUTO_REFRESH_INTERVAL_MS = 30 min
+   startAutoRefresh() in init, runs in viewModelScope
+   Silent — no spinner, no error toast
+   Auto-cancelled when ViewModel is cleared
+
+4. fetch_news.py — run metrics logging
+   Each article tagged with _provider (currentsapi/rss/newsdata/contextualweb/ai)
+   Metrics appended to logs/run_metrics.csv after every run:
+     timestamp, tier, raw_total, within_run_dups, unique_this_run,
+     cross_run_dups, fresh_unique, per-provider counts
+   _provider key stripped before Firebase upload (explicit field mapping)
+
+5. fetch-news.yml — workflow updates
+   Reverted cache venv: removed actions/cache@v4 pip-cache + conditional install
+   Now uses simple: pip install -r scripts/requirements.txt
+   permissions: contents: write (was read)
+   Added git commit+push step for logs/run_metrics.csv
+
+6. logs/run_metrics.csv — created with header row
+   Grows automatically with each GitHub Actions run
+```
+
+---
+
+## 23. Pending Future Tasks
+
+### Task F1: ~~Article Priority Scoring~~ — SUPERSEDED
+
+```
+STATUS: SUPERSEDED by Article Quality Tagging (implemented)
+
+The quality field ("high"/"low") replaces the proposed multi-level priority score.
+  - fetch_news.py computes quality based on: image presence + description >= 200 chars
+  - Firebase stores quality field on every article
+  - App fetches high quality first, fills gaps with low quality
+  - No further action needed on F1.
+```
+
+### Task F2: Quality-Aware Room Deletion (NEW — NOT YET IMPLEMENTED)
+
+```
+PROBLEM:
+  Current smart delete (deleteStaleFromLargeCategories) treats all articles equally.
+  Low quality articles are gap fillers and should be deleted before high quality.
+
+REQUIREMENT:
+  Two-pass smart delete:
+    Pass 1: Delete ALL quality="low" articles older than 7 days (expendable gap fillers)
+    Pass 2: Delete quality="high" articles older than 7 days ONLY from categories with 100+ articles
+
+FILES AFFECTED:
+  - ArticleDao.kt — add deleteStaleLowQuality(threshold: Long) query
+  - SyncManager.kt — call two-pass delete instead of single deleteStaleFromLargeCategories
+
+STATUS: SAVED FOR LATER
+```
+
+---
+
+## 24. Implementation Phases
 
 | Phase | What | Module | Files |
 |-------|------|--------|-------|

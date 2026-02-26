@@ -14,6 +14,10 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Headlinr">
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-2136184247126956~9710418457" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

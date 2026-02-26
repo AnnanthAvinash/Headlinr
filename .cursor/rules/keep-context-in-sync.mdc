@@ -1,0 +1,33 @@
+---
+description: Keep all project context rule files in sync when pillar functionality changes
+alwaysApply: true
+---
+
+# Keep Context Files In Sync
+
+## Rule
+
+Whenever a code change affects **Firebase read strategy** or **GitHub Actions strategy**, you MUST also update the corresponding `.cursor/rules/` context file in the same task — not as a separate follow-up.
+
+## Context files to update
+
+| Pillar | Context file | Update when changing... |
+|--------|-------------|------------------------|
+| Firebase reads | `.cursor/rules/firebase-read-strategy.mdc` | Sync intervals, batch sizes, safety guards, read budget, DAU math, Room retention policy, any new Firebase read path |
+| GitHub Actions | `.cursor/rules/github-actions-strategy.mdc` | Cron schedule, providers, API limits, dedup layers, metrics CSV columns, workflow steps, RSS feed count, secrets |
+| General | `.cursor/rules/project-context.mdc` | Module boundaries, package names, key files, dependencies, conventions |
+
+## When to trigger
+
+- Adding/removing a news provider → update `github-actions-strategy.mdc`
+- Changing sync parameters in `SyncManager.kt` → update `firebase-read-strategy.mdc`
+- Changing cron schedule or workflow steps → update `github-actions-strategy.mdc`
+- Adding a new Firebase collection or read path → update `firebase-read-strategy.mdc`
+- Changing DAU capacity or read budget math → update `firebase-read-strategy.mdc`
+- Adding/removing RSS feeds → update `github-actions-strategy.mdc`
+- Changing article quality filters → update `github-actions-strategy.mdc`
+- Any structural change (new module, renamed package) → update `project-context.mdc`
+
+## How
+
+Update the context file **values/tables/lists** to match the new code. Do not leave stale numbers or outdated parameters in context files.

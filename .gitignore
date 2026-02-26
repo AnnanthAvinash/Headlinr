@@ -76,3 +76,4 @@ service-account*.json
 # Secrets / env
 .env
 .env.*
+utils/

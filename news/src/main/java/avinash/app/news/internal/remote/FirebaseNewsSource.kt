@@ -20,10 +20,12 @@ class FirebaseNewsSource @Inject constructor(
 
     suspend fun fetchArticlesSince(
         sinceTimestamp: Long,
-        limit: Long = 50
+        limit: Long = 50,
+        quality: String = "high"
     ): List<ArticleEntity> {
         return try {
             val snapshot = firestore.collection(COLLECTION)
+                .whereEqualTo("quality", quality)
                 .whereGreaterThan("publishedAt", Timestamp(Date(sinceTimestamp)))
                 .orderBy("publishedAt", Query.Direction.DESCENDING)
                 .limit(limit)
@@ -42,6 +44,7 @@ class FirebaseNewsSource @Inject constructor(
                         publishedAt = doc.getTimestamp("publishedAt")?.toDate()?.time ?: 0L,
                         sourceName = doc.getString("sourceName") ?: "",
                         category = doc.getString("category") ?: "general",
+                        quality = doc.getString("quality") ?: "low",
                         cachedAt = now
                     )
                 } catch (e: Exception) {
@@ -55,9 +58,13 @@ class FirebaseNewsSource @Inject constructor(
         }
     }
 
-    suspend fun fetchLatestArticles(limit: Long = 100): List<ArticleEntity> {
+    suspend fun fetchLatestArticles(
+        limit: Long = 100,
+        quality: String = "high"
+    ): List<ArticleEntity> {
         return try {
             val snapshot = firestore.collection(COLLECTION)
+                .whereEqualTo("quality", quality)
                 .orderBy("publishedAt", Query.Direction.DESCENDING)
                 .limit(limit)
                 .get()
@@ -75,6 +82,7 @@ class FirebaseNewsSource @Inject constructor(
                         publishedAt = doc.getTimestamp("publishedAt")?.toDate()?.time ?: 0L,
                         sourceName = doc.getString("sourceName") ?: "",
                         category = doc.getString("category") ?: "general",
+                        quality = doc.getString("quality") ?: "low",
                         cachedAt = now
                     )
                 } catch (e: Exception) {

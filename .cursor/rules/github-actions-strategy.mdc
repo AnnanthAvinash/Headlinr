@@ -1,0 +1,104 @@
+---
+description: GitHub Actions two-tier schedule, provider limits, RSS feeds, run metrics, and workflow constraints
+alwaysApply: true
+---
+
+# GitHub Actions Strategy
+
+## Hard Limits
+
+| Resource | Limit | Our Usage | % Used |
+|----------|-------|-----------|--------|
+| GitHub Actions minutes (private repo) | 2,000/month | 1,440/month | 72% |
+| currentsapi | 1,000 req/day | 48/day | 4.8% |
+| newsdata.io | 200 credits/day | 18/day | 9% |
+| contextualweb.io | 10,000 req/month | 540/month | 5.4% |
+| RSS feeds (16) | Unlimited | 768/day | FREE |
+
+## Two-Tier Schedule
+
+```
+cron: '*/30 * * * *'   ← every 30 minutes
+
+TIER 1 (every run — freshness):
+  → currentsapi latest headlines (1 API call)
+  → All 16 RSS feeds (parallel, free)
+  → AI keyword filter (clone tech→ai, no API call)
+
+TIER 2 (every 4 hours — volume + cleanup):
+  → newsdata.io: sports, technology, business (3 calls)
+  → contextualweb: health, science, entertainment (3 calls)
+  → Delete articles > 7 days from Firebase
+```
+
+## Rotation (daily totals)
+
+| Provider | Calls/Day | Cost |
+|----------|-----------|------|
+| currentsapi | 48 | 4.8% of 1,000 |
+| newsdata.io | 18 credits | 9% of 200 |
+| contextualweb | 18 calls | 5.4% of 333/day |
+| RSS feeds | 768 fetches | Free |
+| Firebase writes | ~1,100 | 5.5% of 20,000 |
+| GitHub Actions | ~48 min/day | 72% of 2,000/month |
+
+## Content Pipeline (fetch_news.py)
+
+```
+Fetch (4 providers + 16 RSS) → Normalize → Deduplicate (3-layer) → Tag quality → Upload to Firebase
+```
+
+### Deduplication Layers
+1. **Article ID hash** — SHA-256 of (normalized_title + normalized_source)
+2. **URL dedup** — seen_urls set within RSS processing
+3. **Cross-run cache** — `.article_cache.json` persisted via actions/cache
+
+### Provider Tagging
+Every article gets `_provider` key (`currentsapi` / `rss` / `newsdata` / `contextualweb` / `ai`).
+Stripped before Firebase upload (explicit field mapping in `upload_articles`).
+
+## Run Metrics (logs/run_metrics.csv)
+
+Appended after every run. Columns:
+`timestamp, tier, raw_total, within_run_dups, unique_this_run, cross_run_dups, fresh_unique, currentsapi, rss, newsdata, contextualweb, ai`
+
+Committed and pushed by the workflow via `github-actions[bot]`.
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `.github/workflows/fetch-news.yml` | Cron workflow, pip install, run script, commit metrics |
+| `scripts/fetch_news.py` | Fetch, normalize, deduplicate, upload, log metrics |
+| `scripts/requirements.txt` | Python deps (feedparser, google-cloud-firestore, Pillow, requests) |
+| `logs/run_metrics.csv` | Per-run metrics history |
+| `scripts/.article_cache.json` | Cross-run dedup cache (GitHub Actions cache artifact) |
+
+## Secrets Required
+
+`CURRENTSAPI_KEY`, `NEWSDATA_KEY`, `RAPIDAPI_KEY`, `FIREBASE_SERVICE_ACCOUNT` (entire JSON)
+
+## Article Quality Tagging
+
+Every article is tagged `quality = "high"` or `"low"` by `compute_quality()` before Firebase upload.
+
+| Quality | Criteria |
+|---------|----------|
+| **high** | Image URL exists (http, not GIF, not placeholder) AND description >= 200 chars |
+| **low** | Everything else (missing/bad image, short description) |
+
+- Quality is computed from `PLACEHOLDER_PATTERNS` and `DESC_MIN_LEN` (200 chars)
+- `quality` field is stored in Firebase alongside all other article fields
+- `_provider` is NOT stored in Firebase (stripped by explicit field mapping)
+- `quality` IS stored in Firebase (included in explicit field mapping)
+
+## Rules for Any Code Change
+
+- NEVER add a new API provider without calculating daily calls vs free tier limit
+- NEVER increase cron frequency — 30 min is tuned to balance freshness vs GitHub Actions minutes
+- NEVER remove the cross-run cache — it prevents duplicate Firebase writes
+- NEVER store `_provider` in Firebase — strip before upload
+- NEVER remove the `quality` field from Firebase upload — app depends on it for filtered queries
+- Any new provider must include: normalization, deduplication, category mapping, image validation
+- Workflow permissions must stay `contents: write` (needed for metrics commit)
+- Keep pip install simple (no cache venv — reverted because 165 MB cache > 20 MB fresh install)

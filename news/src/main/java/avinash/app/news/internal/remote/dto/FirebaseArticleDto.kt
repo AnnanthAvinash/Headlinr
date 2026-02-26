@@ -10,5 +10,6 @@ data class FirebaseArticleDto(
     val articleUrl: String = "",
     val publishedAt: Timestamp? = null,
     val sourceName: String = "",
-    val category: String = ""
+    val category: String = "",
+    val quality: String = "high"
 )

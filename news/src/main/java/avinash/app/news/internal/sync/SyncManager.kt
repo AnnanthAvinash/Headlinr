@@ -31,12 +31,13 @@ class SyncManager @Inject constructor(
         private val KEY_LAST_SYNC = longPreferencesKey("last_sync_timestamp")
         private val KEY_LAST_CATEGORY_SYNC = longPreferencesKey("last_category_sync_timestamp")
 
-        private const val MIN_SYNC_INTERVAL_MS = 5 * 60 * 1000L // 5 minutes
+        private const val MIN_SYNC_INTERVAL_MS = 10 * 60 * 1000L // 10 minutes
         private const val STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000L // 24 hours
         private const val CATEGORY_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000L // 24 hours
         private const val BATCH_SIZE = 50L
-        private const val MAX_SYNC_CAP = 100
+        private const val MAX_SYNC_CAP = 300
         private const val OLD_DATA_TTL_MS = 7L * 24 * 60 * 60 * 1000 // 7 days
+        private const val MIN_CATEGORY_RETENTION = 100
     }
 
     suspend fun syncNews(): Result<Unit> = runCatching {
@@ -53,36 +54,30 @@ class SyncManager @Inject constructor(
 
         if (needsFullSync) {
             Timber.d("Full sync required — gap: ${TimeUnit.MILLISECONDS.toHours(gap)}h")
-            articleDao.deleteAll()
-            fetchInBatches { firebaseNewsSource.fetchLatestArticles(BATCH_SIZE) }
+            val limit = MAX_SYNC_CAP.toLong()
+            val high = firebaseNewsSource.fetchLatestArticles(limit, quality = "high")
+            val articles = if (high.size < MAX_SYNC_CAP) {
+                val gapSize = MAX_SYNC_CAP - high.size
+                high + firebaseNewsSource.fetchLatestArticles(gapSize.toLong(), quality = "low")
+            } else high
+            if (articles.isNotEmpty()) {
+                articleDao.upsertAll(articles)
+                Timber.d("Full sync: ${articles.size} articles (high=${high.size}, low=${articles.size - high.size})")
+            }
         } else {
             Timber.d("Incremental sync — fetching since last sync")
-            fetchInBatches { firebaseNewsSource.fetchArticlesSince(lastSync, BATCH_SIZE) }
-        }
-
-        articleDao.deleteOlderThan(now - OLD_DATA_TTL_MS)
-        updateLastSyncTimestamp(now)
-    }
-
-    private suspend fun fetchInBatches(fetcher: suspend () -> List<avinash.app.news.internal.local.entity.ArticleEntity>) {
-        var totalFetched = 0
-        val articles = fetcher()
-        if (articles.isNotEmpty()) {
-            articleDao.upsertAll(articles)
-            totalFetched += articles.size
-            Timber.d("Synced batch: ${articles.size} articles (total: $totalFetched)")
-        }
-
-        if (articles.size.toLong() >= BATCH_SIZE && totalFetched < MAX_SYNC_CAP) {
-            val oldest = articles.minOf { it.publishedAt }
-            val moreBatch = firebaseNewsSource.fetchArticlesSince(0, BATCH_SIZE)
-                .filter { it.publishedAt < oldest }
-                .take(MAX_SYNC_CAP - totalFetched)
-            if (moreBatch.isNotEmpty()) {
-                articleDao.upsertAll(moreBatch)
-                Timber.d("Synced additional batch: ${moreBatch.size} articles")
+            val high = firebaseNewsSource.fetchArticlesSince(lastSync, BATCH_SIZE, quality = "high")
+            val articles = if (high.size < BATCH_SIZE.toInt()) {
+                val gapSize = BATCH_SIZE - high.size
+                high + firebaseNewsSource.fetchArticlesSince(lastSync, gapSize, quality = "low")
+            } else high
+            if (articles.isNotEmpty()) {
+                articleDao.upsertAll(articles)
+                Timber.d("Incremental sync: ${articles.size} articles (high=${high.size}, low=${articles.size - high.size})")
             }
         }
+
+        updateLastSyncTimestamp(now)
     }
 
     suspend fun syncCategories(): Result<Unit> = runCatching {

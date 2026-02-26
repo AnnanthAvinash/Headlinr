@@ -19,11 +19,13 @@ import avinash.app.news.internal.remote.RemoteConfigManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -46,6 +48,7 @@ class NewsViewModel @Inject constructor(
         private val KEY_SELECTED_CATEGORIES = stringSetPreferencesKey("selected_categories")
         private val KEY_RECENT_SEARCHES = stringPreferencesKey("recent_searches")
         private const val MAX_RECENT = 10
+        private const val AUTO_REFRESH_INTERVAL_MS = 30 * 60 * 1000L
     }
 
     val remoteConfig: RemoteConfigManager get() = newsRepository.getRemoteConfig()
@@ -61,11 +64,25 @@ class NewsViewModel @Inject constructor(
 
     private val _searchQuery = MutableStateFlow("")
 
-    val categories: StateFlow<List<Category>> = newsRepository.getCategories()
+    private val allCategories: StateFlow<List<Category>> = newsRepository.getCategories()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    private val _selectedCategorySlugs = MutableStateFlow<Set<String>>(emptySet())
+
+    val userCategories: StateFlow<List<Category>> = combine(
+        allCategories,
+        _selectedCategorySlugs
+    ) { all, selected ->
+        if (selected.isEmpty()) all else all.filter { it.slug in selected }
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    val categories: StateFlow<List<Category>> get() = allCategories
+
+    private val _activeCategory = MutableStateFlow<String?>(null)
+    val activeCategory: StateFlow<String?> = _activeCategory.asStateFlow()
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    val articles: Flow<PagingData<NewsArticle>> = MutableStateFlow<String?>(null)
+    val articles: Flow<PagingData<NewsArticle>> = _activeCategory
         .flatMapLatest { newsRepository.getNewsPaged(it) }
         .cachedIn(viewModelScope)
 
@@ -91,8 +108,24 @@ class NewsViewModel @Inject constructor(
     val trendingTopics: StateFlow<List<String>> = _trendingTopics.asStateFlow()
 
     init {
+        loadSelectedCategorySlugs()
         initialSync()
         loadRecentSearches()
+        startAutoRefresh()
+    }
+
+    private fun startAutoRefresh() {
+        viewModelScope.launch {
+            while (true) {
+                delay(AUTO_REFRESH_INTERVAL_MS)
+                newsRepository.refreshNews()
+                loadTrendingArticles()
+            }
+        }
+    }
+
+    fun selectCategory(slug: String?) {
+        _activeCategory.value = slug
     }
 
     private fun initialSync() {
@@ -177,6 +210,14 @@ class NewsViewModel @Inject constructor(
 
     // --- Category selection (onboarding) ---
 
+    private fun loadSelectedCategorySlugs() {
+        viewModelScope.launch {
+            val prefs = context.appPrefs.data.first()
+            val slugs = prefs[KEY_SELECTED_CATEGORIES] ?: emptySet()
+            _selectedCategorySlugs.value = slugs
+        }
+    }
+
     fun hasSelectedCategories(): Boolean {
         return runBlocking {
             context.appPrefs.data.first()[KEY_HAS_CATEGORIES] ?: false
@@ -189,6 +230,7 @@ class NewsViewModel @Inject constructor(
                 prefs[KEY_HAS_CATEGORIES] = true
                 prefs[KEY_SELECTED_CATEGORIES] = slugs
             }
+            _selectedCategorySlugs.value = slugs
         }
     }
 

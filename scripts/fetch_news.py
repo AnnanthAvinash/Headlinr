@@ -8,12 +8,14 @@ Two-tier schedule:
   TIER 2 (every 4 hours): newsdata.io + contextualweb category fills + cleanup
 """
 
+import csv
 import hashlib
 import html
 import json
 import os
 import re
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -354,6 +356,7 @@ def fetch_currentsapi_latest() -> list[dict]:
             "publishedAt": published,
             "sourceName": source_norm,
             "category": normalize_category(raw_cat),
+            "_provider": "currentsapi",
         })
 
     print(f"[OK] currentsapi latest: {len(articles)} articles")
@@ -404,6 +407,7 @@ def fetch_newsdata_category(category: str) -> list[dict]:
             "publishedAt": published,
             "sourceName": source_norm,
             "category": normalize_category(raw_cat),
+            "_provider": "newsdata",
         })
 
     print(f"[OK] newsdata {category}: {len(articles)} articles")
@@ -461,6 +465,7 @@ def fetch_contextualweb_query(query: str, target_category: str) -> list[dict]:
             "publishedAt": published,
             "sourceName": source_norm,
             "category": normalize_category(target_category),
+            "_provider": "contextualweb",
         })
 
     print(f"[OK] contextualweb '{query}': {len(articles)} articles")
@@ -549,6 +554,21 @@ def is_good_description(text: str) -> bool:
         return False
     html_ratio = len(HTML_TAG_RE.findall(text)) / max(len(text), 1)
     return html_ratio < 0.3
+
+
+def compute_quality(article: dict) -> str:
+    """Classify article as 'high' or 'low' quality based on image and description."""
+    img = article.get("imageUrl") or ""
+    if not img or not img.startswith("http"):
+        return "low"
+    if img.lower().endswith(".gif"):
+        return "low"
+    if PLACEHOLDER_PATTERNS.search(img):
+        return "low"
+    desc = article.get("description") or ""
+    if len(desc.strip()) < DESC_MIN_LEN:
+        return "low"
+    return "high"
 
 
 # ---------------------------------------------------------------------------
@@ -730,6 +750,7 @@ def fetch_single_rss_feed(feed_config: dict, seen_urls: set[str]) -> tuple[list[
             "publishedAt": published,
             "sourceName": source_norm,
             "category": normalize_category(category),
+            "_provider": "rss",
         })
 
     # Compute quality metrics
@@ -805,6 +826,7 @@ def extract_ai_articles(articles: list[dict]) -> list[dict]:
             clone = dict(a)
             clone["category"] = "ai"
             clone["id"] = make_article_id(a["title"], a["sourceName"] + "_ai")
+            clone["_provider"] = "ai"
             ai_articles.append(clone)
     return ai_articles
 
@@ -852,6 +874,7 @@ def upload_articles(db: firestore.Client, articles: list[dict], cached_ids: set[
             "publishedAt": article["publishedAt"],
             "sourceName": article["sourceName"],
             "category": article["category"],
+            "quality": article.get("quality", "low"),
         })
         count += 1
 
@@ -959,6 +982,45 @@ def upload_rss_metrics(db: firestore.Client, metrics_list: list[dict]):
 # Main
 # ---------------------------------------------------------------------------
 
+METRICS_CSV = Path(__file__).resolve().parent.parent / "logs" / "run_metrics.csv"
+
+
+def append_run_metrics(
+    tier_label: str,
+    raw_total: int,
+    within_run_dups: int,
+    unique_this_run: int,
+    cross_run_dups: int,
+    fresh_unique: int,
+    all_articles: list[dict],
+):
+    """Append one row of run metrics to the CSV log file."""
+    provider_counts = Counter(a.get("_provider", "unknown") for a in all_articles)
+    row = {
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "tier": tier_label,
+        "raw_total": raw_total,
+        "within_run_dups": within_run_dups,
+        "unique_this_run": unique_this_run,
+        "cross_run_dups": cross_run_dups,
+        "fresh_unique": fresh_unique,
+        "currentsapi": provider_counts.get("currentsapi", 0),
+        "rss": provider_counts.get("rss", 0),
+        "newsdata": provider_counts.get("newsdata", 0),
+        "contextualweb": provider_counts.get("contextualweb", 0),
+        "ai": provider_counts.get("ai", 0),
+    }
+    fieldnames = list(row.keys())
+    write_header = not METRICS_CSV.exists() or METRICS_CSV.stat().st_size == 0
+    METRICS_CSV.parent.mkdir(parents=True, exist_ok=True)
+    with open(METRICS_CSV, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+    print(f"[OK] Appended run metrics to {METRICS_CSV}")
+
+
 def determine_tier() -> tuple[bool, bool]:
     """Determine which tiers to run based on current UTC hour/minute."""
     now = datetime.now(timezone.utc)
@@ -1036,10 +1098,33 @@ def main():
             seen_ids.add(a["id"])
             unique_articles.append(a)
 
-    print(f"\nTotal unique articles this run: {len(unique_articles)}")
+    raw_total = len(all_articles)
+    within_run_dups = raw_total - len(unique_articles)
+
+    # --- Tag quality ---
+    high_count = 0
+    for a in unique_articles:
+        a["quality"] = compute_quality(a)
+        if a["quality"] == "high":
+            high_count += 1
+    print(f"\nTotal unique articles this run: {len(unique_articles)} "
+          f"(high={high_count}, low={len(unique_articles) - high_count})")
 
     # --- Upload ---
     written = upload_articles(db, unique_articles, cached_ids)
+
+    # --- Run metrics ---
+    cross_run_dups = len(unique_articles) - written
+    tier_label = "tier1+2" if tier2 else "tier1"
+    append_run_metrics(
+        tier_label=tier_label,
+        raw_total=raw_total,
+        within_run_dups=within_run_dups,
+        unique_this_run=len(unique_articles),
+        cross_run_dups=cross_run_dups,
+        fresh_unique=written,
+        all_articles=all_articles,
+    )
 
     # --- Update categories ---
     if unique_articles:

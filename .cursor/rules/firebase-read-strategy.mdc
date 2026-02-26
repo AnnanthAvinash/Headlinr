@@ -1,0 +1,92 @@
+---
+description: Firebase Spark free tier read budget, sync guards, DAU capacity, and Room retention policy
+alwaysApply: true
+---
+
+# Firebase Read Strategy
+
+## Hard Limits (Spark Plan — free)
+
+| Resource | Daily Limit | Resets at midnight Pacific |
+|----------|-------------|---------------------------|
+| Reads | 50,000/day | Exceeding = shut off until next day |
+| Writes | 20,000/day | |
+| Deletes | 20,000/day | |
+| Storage | 1 GiB | |
+| Egress | 10 GiB/month | |
+
+GitHub Actions cleanup overhead: ~2,400 reads/day
+Available for app users: **~47,600 reads/day**
+
+## Sync Parameters (SyncManager.kt)
+
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| `MIN_SYNC_INTERVAL_MS` | 10 min | Pull-to-refresh cooldown — prevents spamming reads |
+| `BATCH_SIZE` | 50 | Matches ~50-80 new articles per 30-min GitHub Actions run |
+| `MAX_SYNC_CAP` | 300 | Full sync on first open — rich content across all categories |
+| `OLD_DATA_TTL_MS` | 7 days | Stale threshold for smart delete |
+| `MIN_CATEGORY_RETENTION` | 100 | Categories with <100 articles never get pruned |
+| `CATEGORY_SYNC_INTERVAL_MS` | 24 hours | Categories change rarely |
+| `AUTO_REFRESH_INTERVAL_MS` | 30 min | Matches GitHub Actions schedule — silent, in viewModelScope |
+
+## Quality-Aware Sync Flow
+
+Every sync fetches **high quality first**, then fills the gap with low quality:
+
+```
+Step 1: Fetch up to LIMIT articles WHERE quality = "high"
+Step 2: If highCount < LIMIT → fetch (LIMIT - highCount) WHERE quality = "low"
+Step 3: Save all to Room with quality tag
+```
+
+- Incremental sync: LIMIT = BATCH_SIZE (50)
+- Full sync: LIMIT = MAX_SYNC_CAP (300)
+- Worst case: +1 extra Firebase query per sync (gap-fill). Typical case: 0 extra reads.
+- Requires composite Firestore index: `quality ASC + publishedAt DESC` on `news_articles`
+
+## Seven Safety Guards
+
+1. **Pull-to-refresh cooldown** = 10 min — skip if lastSync < 10 min ago, use Room cache
+2. **Max sync cap** = 300 — only on first open or after 24h gap
+3. **Incremental batch** = 50 — keeps each sync lightweight
+4. **Auto-refresh** = 30 min — silent, foreground only (viewModelScope)
+5. **Category sync** = once/day — ~18 reads instead of 18 per open
+6. **Smart Room retention** — only delete 7-day-old articles from categories with 100+ articles
+7. **Quality-first fetch** — high quality articles always fetched first, low quality only fills gaps
+
+## Read Budget Per User Per Day
+
+| User Type | Session | Pulls | Auto-refreshes | Reads/Day |
+|-----------|---------|-------|----------------|-----------|
+| Light (15 min) | 15 min | 1 | 0 | ~78 |
+| Normal (1 hr) | 1 hr | 2 | 1 | ~168 |
+| Heavy (3-4 hr) | 3 hr | 5 | 5 | ~438 |
+| Power (8 hr) | 8 hr | 10 | 16 | ~828 |
+| First-time (full) | 30 min | 1 | 0 | ~348 |
+
+## DAU Capacity on Free Tier
+
+| Scenario | DAU |
+|----------|-----|
+| All light | 610 |
+| All normal | 283 |
+| All heavy | 108 |
+| Realistic mix (60% light, 30% normal, 10% heavy) | **~363** |
+| Early stage (10-20 users) | ~13% of limit |
+
+## Zero Firebase Reads Operations
+
+- Browse / scroll → Room PagingSource
+- Switch category → Room PagingSource
+- Load more (pagination) → Room PagingSource
+- Search → Room FTS query
+
+## Rules for Any Code Change
+
+- NEVER add a new Firebase read path without calculating its impact on the daily budget
+- NEVER reduce sync intervals below current values without recalculating DAU capacity
+- NEVER remove or weaken any of the 7 safety guards
+- NEVER remove the quality-first fetch logic — it ensures best content surfaces first
+- Room is the SINGLE SOURCE OF TRUTH — UI never reads Firestore directly
+- Any new sync feature must show reads/day math before implementation

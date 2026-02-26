@@ -76,6 +76,9 @@ dependencies {
     // Timber
     implementation(libs.timber)
 
+    // AdMob
+    implementation(libs.google.ads)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
