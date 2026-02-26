@@ -44,13 +44,15 @@ class SyncManager @Inject constructor(
         val now = System.currentTimeMillis()
         val lastSync = getLastSyncTimestamp()
 
-        if (lastSync > 0 && (now - lastSync) < MIN_SYNC_INTERVAL_MS) {
+        val roomEmpty = articleDao.getCount() == 0
+
+        if (!roomEmpty && lastSync > 0 && (now - lastSync) < MIN_SYNC_INTERVAL_MS) {
             Timber.d("Skipping sync — last sync was ${(now - lastSync) / 1000}s ago")
             return Result.success(Unit)
         }
 
         val gap = now - lastSync
-        val needsFullSync = lastSync == 0L || gap > STALE_THRESHOLD_MS
+        val needsFullSync = lastSync == 0L || gap > STALE_THRESHOLD_MS || roomEmpty
 
         if (needsFullSync) {
             Timber.d("Full sync required — gap: ${TimeUnit.MILLISECONDS.toHours(gap)}h")

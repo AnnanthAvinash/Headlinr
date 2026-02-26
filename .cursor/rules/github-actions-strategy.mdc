@@ -25,10 +25,10 @@ TIER 1 (every run — freshness):
   → All 16 RSS feeds (parallel, free)
   → AI keyword filter (clone tech→ai, no API call)
 
-TIER 2 (every 4 hours — volume + cleanup):
+TIER 2 (every 4 hours — volume):
   → newsdata.io: sports, technology, business (3 calls)
   → contextualweb: health, science, entertainment (3 calls)
-  → Delete articles > 7 days from Firebase
+  (No Firebase cleanup — deletion policy pending Task F2)
 ```
 
 ## Rotation (daily totals)
@@ -92,6 +92,23 @@ Every article is tagged `quality = "high"` or `"low"` by `compute_quality()` bef
 - `_provider` is NOT stored in Firebase (stripped by explicit field mapping)
 - `quality` IS stored in Firebase (included in explicit field mapping)
 
+## RSS Image Extraction
+
+`extract_image_from_entry()` finds article images from RSS entries. Uses fast path first, searches deeper only when primary source is empty.
+
+**Extraction order** (returns first valid match):
+1. `media_content` — primary image, most feeds use this
+2. `enclosures` — accepts `type="image/*"` or image file extensions
+3. `links` — some feeds put images here with `type="image/*"`
+4. `<img>` tags in `content`/`summary` HTML — parsed via regex
+5. `media_thumbnail` — last resort
+
+**Junk rejection** (`_is_valid_image_url` applied to every candidate):
+- GIFs, placeholders, thumbnails, brand logos, default/fallback images
+- Author avatars, headshots, favicons, social share icons
+- Ad banners, sponsors, watermarks, tracking pixels
+- Patterns defined in `PLACEHOLDER_PATTERNS` + `JUNK_IMAGE_PATTERNS`
+
 ## Rules for Any Code Change
 
 - NEVER add a new API provider without calculating daily calls vs free tier limit
@@ -99,6 +116,7 @@ Every article is tagged `quality = "high"` or `"low"` by `compute_quality()` bef
 - NEVER remove the cross-run cache — it prevents duplicate Firebase writes
 - NEVER store `_provider` in Firebase — strip before upload
 - NEVER remove the `quality` field from Firebase upload — app depends on it for filtered queries
+- NEVER add Firebase deletion logic until Task F2 (deletion policy redesign) is designed and approved
 - Any new provider must include: normalization, deduplication, category mapping, image validation
 - Workflow permissions must stay `contents: write` (needed for metrics commit)
 - Keep pip install simple (no cache venv — reverted because 165 MB cache > 20 MB fresh install)

@@ -76,6 +76,10 @@ dependencies {
     // Timber
     implementation(libs.timber)
 
+    // Firebase (for AdMob analytics integration)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.analytics)
+
     // AdMob
     implementation(libs.google.ads)
 

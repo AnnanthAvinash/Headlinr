@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Rule
 
-Whenever a code change affects **Firebase read strategy** or **GitHub Actions strategy**, you MUST also update the corresponding `.cursor/rules/` context file in the same task — not as a separate follow-up.
+Whenever a code change affects **Firebase read strategy**, **GitHub Actions strategy**, or **project structure/features**, you MUST also update the corresponding `.cursor/rules/` context file in the same task — not as a separate follow-up.
 
 ## Context files to update
 
@@ -21,12 +21,16 @@ Whenever a code change affects **Firebase read strategy** or **GitHub Actions st
 
 - Adding/removing a news provider → update `github-actions-strategy.mdc`
 - Changing sync parameters in `SyncManager.kt` → update `firebase-read-strategy.mdc`
+- Changing Room deletion policy or adding/removing delete calls → update `firebase-read-strategy.mdc`
 - Changing cron schedule or workflow steps → update `github-actions-strategy.mdc`
 - Adding a new Firebase collection or read path → update `firebase-read-strategy.mdc`
 - Changing DAU capacity or read budget math → update `firebase-read-strategy.mdc`
 - Adding/removing RSS feeds → update `github-actions-strategy.mdc`
 - Changing article quality filters → update `github-actions-strategy.mdc`
 - Any structural change (new module, renamed package) → update `project-context.mdc`
+- Adding/changing/removing dependencies → update `project-context.mdc`
+- Adding/changing AdMob (ad units, placements, SDK config) → update `project-context.mdc`
+- Adding new key files (components, screens, utilities) → update `project-context.mdc`
 
 ## How
 

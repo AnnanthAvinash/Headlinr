@@ -44,7 +44,17 @@ GitHub Actions (every 30 min) → Firebase Firestore → news module (Room SSOT)
 | DI wiring | `news/…/di/NewsModule.kt` |
 | ViewModel | `app/…/viewmodel/NewsViewModel.kt` |
 | Home screen | `app/…/ui/screens/HomeScreen.kt` |
+| In-feed native ad | `app/…/ui/components/InFeedAd.kt` |
 | Full plan | `plan.md` (root) |
+
+## AdMob Integration
+
+- **App ID**: `ca-app-pub-2136184247126956~9710418457` (in `AndroidManifest.xml` meta-data)
+- **Native Ad Unit ID**: `ca-app-pub-2136184247126956/3823812744`
+- SDK initialized in `HeadlinrApp.kt` via `MobileAds.initialize()`
+- `InFeedAd.kt` loads native ads via `AdLoader`, renders with `NativeAdView`, only shows after `onAdLoaded`
+- Ads inserted at random positions (every 5-8 articles) in HomeScreen's `LazyColumn`
+- All ad events logged with Timber tag `AdMob` (requested/loaded/failed/impression/click/destroyed + running stats)
 
 ## Conventions
 
@@ -71,4 +81,5 @@ Two-tier schedule:
 
 Managed via `gradle/libs.versions.toml`. Key libraries:
 - Hilt 2.51.1, Room 2.7.1, Paging 3.3.6, Firebase BOM 33.7.0
-- Coil 2.7.0, Navigation Compose 2.8.9, Timber 5.0.1, DataStore 1.4.0
+- Coil 2.7.0, Navigation Compose 2.8.9, Timber 5.0.1, DataStore 1.1.4
+- Google Mobile Ads (play-services-ads) 23.6.0

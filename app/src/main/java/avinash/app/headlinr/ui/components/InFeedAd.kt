@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -42,7 +44,10 @@ import timber.log.Timber
 import java.util.concurrent.atomic.AtomicInteger
 
 private const val AD_UNIT_ID = "ca-app-pub-2136184247126956/3823812744"
+
 private const val TAG = "AdMob"
+private const val MAX_RETRIES = 2
+private const val INITIAL_RETRY_DELAY_MS = 2_000L
 
 private val totalRequested = AtomicInteger(0)
 private val totalLoaded = AtomicInteger(0)
@@ -86,59 +91,76 @@ fun InFeedAd(modifier: Modifier = Modifier) {
     DisposableEffect(Unit) {
         val adId = totalRequested.incrementAndGet()
         var isActive = true
+        var retryCount = 0
+        val handler = Handler(Looper.getMainLooper())
 
-        Timber.tag(TAG).d("Ad #%d — requesting native (unit=%s)", adId, AD_UNIT_ID)
-        logStats("REQUESTED #$adId")
-
-        AdLoader.Builder(context, AD_UNIT_ID)
-            .forNativeAd { ad ->
-                if (isActive) {
-                    nativeAd = ad
-                    isLoaded = true
-                    totalLoaded.incrementAndGet()
-                    Timber.tag(TAG).d("Ad #%d — LOADED native (headline=%s)", adId, ad.headline)
-                    logStats("LOADED #$adId")
-                } else {
-                    ad.destroy()
-                }
-            }
-            .withAdListener(object : AdListener() {
-                override fun onAdFailedToLoad(error: LoadAdError) {
-                    totalFailed.incrementAndGet()
-                    Timber.tag(TAG).e(
-                        "Ad #%d — FAILED code=%d msg=%s domain=%s cause=%s",
-                        adId, error.code, error.message, error.domain,
-                        error.cause?.toString() ?: "none"
-                    )
-                    logStats("FAILED #$adId")
-                }
-
-                override fun onAdImpression() {
-                    Timber.tag(TAG).d("Ad #%d — IMPRESSION recorded", adId)
-                }
-
-                override fun onAdClicked() {
-                    Timber.tag(TAG).d("Ad #%d — CLICKED", adId)
-                }
-
-                override fun onAdOpened() {
-                    Timber.tag(TAG).d("Ad #%d — OPENED", adId)
-                }
-
-                override fun onAdClosed() {
-                    Timber.tag(TAG).d("Ad #%d — CLOSED", adId)
-                }
-            })
-            .withNativeAdOptions(
-                NativeAdOptions.Builder()
-                    .setMediaAspectRatio(NativeAdOptions.NATIVE_MEDIA_ASPECT_RATIO_LANDSCAPE)
-                    .build()
+        fun loadAd() {
+            Timber.tag(TAG).d(
+                "Ad #%d — requesting native (unit=%s, attempt=%d)",
+                adId, AD_UNIT_ID, retryCount + 1
             )
-            .build()
-            .loadAd(AdRequest.Builder().build())
+            logStats("REQUESTED #$adId")
+
+            AdLoader.Builder(context, AD_UNIT_ID)
+                .forNativeAd { ad ->
+                    if (isActive) {
+                        nativeAd = ad
+                        isLoaded = true
+                        totalLoaded.incrementAndGet()
+                        Timber.tag(TAG).d("Ad #%d — LOADED native (headline=%s)", adId, ad.headline)
+                        logStats("LOADED #$adId")
+                    } else {
+                        ad.destroy()
+                    }
+                }
+                .withAdListener(object : AdListener() {
+                    override fun onAdFailedToLoad(error: LoadAdError) {
+                        Timber.tag(TAG).e(
+                            "Ad #%d — FAILED code=%d msg=%s domain=%s cause=%s (attempt=%d)",
+                            adId, error.code, error.message, error.domain,
+                            error.cause?.toString() ?: "none", retryCount + 1
+                        )
+                        if (isActive && retryCount < MAX_RETRIES) {
+                            val delay = INITIAL_RETRY_DELAY_MS shl retryCount
+                            retryCount++
+                            Timber.tag(TAG).d("Ad #%d — retrying in %dms", adId, delay)
+                            handler.postDelayed({ if (isActive) loadAd() }, delay)
+                        } else {
+                            totalFailed.incrementAndGet()
+                            logStats("FAILED #$adId")
+                        }
+                    }
+
+                    override fun onAdImpression() {
+                        Timber.tag(TAG).d("Ad #%d — IMPRESSION recorded", adId)
+                    }
+
+                    override fun onAdClicked() {
+                        Timber.tag(TAG).d("Ad #%d — CLICKED", adId)
+                    }
+
+                    override fun onAdOpened() {
+                        Timber.tag(TAG).d("Ad #%d — OPENED", adId)
+                    }
+
+                    override fun onAdClosed() {
+                        Timber.tag(TAG).d("Ad #%d — CLOSED", adId)
+                    }
+                })
+                .withNativeAdOptions(
+                    NativeAdOptions.Builder()
+                        .setMediaAspectRatio(NativeAdOptions.NATIVE_MEDIA_ASPECT_RATIO_LANDSCAPE)
+                        .build()
+                )
+                .build()
+                .loadAd(AdRequest.Builder().build())
+        }
+
+        loadAd()
 
         onDispose {
             isActive = false
+            handler.removeCallbacksAndMessages(null)
             nativeAd?.destroy()
             totalDestroyed.incrementAndGet()
             Timber.tag(TAG).d("Ad #%d — DESTROYED", adId)

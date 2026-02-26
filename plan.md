@@ -1434,23 +1434,30 @@ The quality field ("high"/"low") replaces the proposed multi-level priority scor
   - No further action needed on F1.
 ```
 
-### Task F2: Quality-Aware Room Deletion (NEW — NOT YET IMPLEMENTED)
+### Task F2: Deletion Policy Redesign (Firebase + Room) — NOT YET IMPLEMENTED
 
 ```
-PROBLEM:
-  Current smart delete (deleteStaleFromLargeCategories) treats all articles equally.
-  Low quality articles are gap fillers and should be deleted before high quality.
+STATUS: PENDING — no deletions anywhere until this is designed and approved
 
-REQUIREMENT:
-  Two-pass smart delete:
-    Pass 1: Delete ALL quality="low" articles older than 7 days (expendable gap fillers)
-    Pass 2: Delete quality="high" articles older than 7 days ONLY from categories with 100+ articles
+CURRENT STATE (as of Feb 2026):
+  - Firebase: NO deletions. Articles accumulate indefinitely. Cleanup function removed.
+  - Room: NO deletions. Only @Upsert. DAO delete methods exist but have zero callers.
+  - Bookmarks: User can unbookmark (removes from bookmarks table only, not articles).
 
-FILES AFFECTED:
-  - ArticleDao.kt — add deleteStaleLowQuality(threshold: Long) query
-  - SyncManager.kt — call two-pass delete instead of single deleteStaleFromLargeCategories
+NEEDS DESIGN:
+  1. Firebase retention — when to delete old articles? By age? By count per category?
+     Must account for Spark plan limits (20,000 deletes/day) and storage (1 GiB).
+  2. Room retention — when to prune cached articles? Quality-aware? Category-aware?
+     Must never leave a category empty. Must never delete while Room is the only copy.
+  3. Coordination — should Room deletion depend on Firebase state or be independent?
+  4. Trigger — GitHub Actions (Firebase), SyncManager (Room), or both?
 
-STATUS: SAVED FOR LATER
+FILES THAT WILL BE AFFECTED:
+  - scripts/fetch_news.py — Firebase cleanup (currently removed)
+  - ArticleDao.kt — Room delete queries (exist but unused)
+  - SyncManager.kt — Room delete calls (currently removed)
+
+DO NOT ADD ANY DELETION CALLS UNTIL THIS TASK IS FULLY DESIGNED AND APPROVED.
 ```
 
 ---

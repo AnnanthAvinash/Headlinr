@@ -575,22 +575,63 @@ def compute_quality(article: dict) -> str:
 # RSS feed image extraction
 # ---------------------------------------------------------------------------
 
+JUNK_IMAGE_PATTERNS = re.compile(
+    r"("
+    # Thumbnails & small crops
+    r"thumbnail|thumb[_\-]|/s[12]\d{2}/|/w[12]\d{2}/|-\d{2,3}x\d{2,3}\."
+    r"|_small|_tiny|_mini"
+    # Logos & brand images
+    r"|logo|brand[_\-]|masthead|site[_\-]icon|header[_\-]logo|footer[_\-]logo"
+    r"|default[_\-]image|default[_\-]og|og[_\-]default|no[_\-]image|noimage"
+    r"|fallback[_\-]img|generic[_\-]image|stock[_\-]image"
+    # Avatars & author photos
+    r"|avatar|author[_\-]photo|author[_\-]img|profile[_\-]pic|headshot|byline"
+    # Social & icons
+    r"|favicon|icon[_\-]|social[_\-]share|share[_\-]icon|badge[_\-]"
+    # Ads & tracking pixels
+    r"|ad[_\-]banner|sponsor|watermark|tracking|pixel|beacon"
+    r")",
+    re.IGNORECASE,
+)
+
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def _is_valid_image_url(url: str) -> bool:
+    """Reject GIFs, placeholders, thumbnails, logos, brand images, avatars, and tracking pixels."""
+    if not url or not url.startswith("http"):
+        return False
+    if url.lower().endswith(".gif"):
+        return False
+    if PLACEHOLDER_PATTERNS.search(url):
+        return False
+    if JUNK_IMAGE_PATTERNS.search(url):
+        return False
+    return True
+
+
 def extract_image_from_entry(entry: dict) -> str | None:
-    """Extract the best image URL from a feedparser entry."""
+    """Extract article image. Uses media_content first; searches full entry only if empty."""
+
+    # Fast path: media_content is the primary image source for most feeds
     for m in entry.get("media_content", []):
         url = m.get("url", "")
-        if url and url.startswith("http") and not url.lower().endswith(".gif"):
+        if _is_valid_image_url(url):
             return url
 
-    for t in entry.get("media_thumbnail", []):
-        url = t.get("url", "")
-        if url and url.startswith("http"):
-            return url
-
+    # Primary source empty — search remaining fields for a valid image
     for enc in entry.get("enclosures", []):
         url = enc.get("href", "") or enc.get("url", "")
-        if url and ("image" in enc.get("type", "") or
-                     any(url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp"))):
+        enc_type = enc.get("type", "")
+        if _is_valid_image_url(url) and (
+            enc_type.startswith("image/") or
+            any(url.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)
+        ):
+            return url
+
+    for link in entry.get("links", []):
+        url = link.get("href", "")
+        if _is_valid_image_url(url) and link.get("type", "").startswith("image/"):
             return url
 
     for field_name in ("content", "summary"):
@@ -600,12 +641,14 @@ def extract_image_from_entry(entry: dict) -> str | None:
                 text += c.get("value", "")
         else:
             text = entry.get(field_name, "")
-        img_urls = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', text)
-        for img_url in img_urls:
-            if (img_url.startswith("http") and
-                    not PLACEHOLDER_PATTERNS.search(img_url) and
-                    not img_url.lower().endswith(".gif")):
+        for img_url in re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', text):
+            if _is_valid_image_url(img_url):
                 return img_url
+
+    for t in entry.get("media_thumbnail", []):
+        url = t.get("url", "")
+        if _is_valid_image_url(url):
+            return url
 
     return None
 
@@ -914,38 +957,6 @@ def update_categories(db: firestore.Client, articles: list[dict]):
     print(f"[OK] Updated {len(seen)} categories")
 
 
-def cleanup_old_articles(db: firestore.Client):
-    """Delete articles older than 7 days."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
-
-    try:
-        old_docs = (
-            db.collection(FIRESTORE_ARTICLES)
-            .where("publishedAt", "<", cutoff)
-            .limit(400)
-            .stream()
-        )
-
-        batch = db.batch()
-        count = 0
-        for doc in old_docs:
-            batch.delete(doc.reference)
-            count += 1
-            if count % 450 == 0:
-                batch.commit()
-                batch = db.batch()
-
-        if count % 450 != 0:
-            batch.commit()
-
-        if count > 0:
-            print(f"[OK] Cleaned up {count} old articles (>7 days)")
-        else:
-            print("[INFO] No old articles to clean up")
-    except Exception as e:
-        print(f"[WARN] Cleanup failed: {e}")
-
-
 # ---------------------------------------------------------------------------
 # RSS metrics storage
 # ---------------------------------------------------------------------------
@@ -1139,11 +1150,6 @@ def main():
                   f"{m['successHit']:>3}/{m['totalHit']:<3} articles | "
                   f"quality={m['qualityPercent']:5.1f}% | {status}")
         upload_rss_metrics(db, rss_metrics)
-
-    # --- Cleanup (tier 2 only) ---
-    if tier2:
-        print("\n--- Cleanup: removing articles older than 7 days ---")
-        cleanup_old_articles(db)
 
     # --- Save cache ---
     new_ids = {a["id"] for a in unique_articles}
