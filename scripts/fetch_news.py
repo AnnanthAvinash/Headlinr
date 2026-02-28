@@ -532,7 +532,7 @@ def clean_html(text: str) -> str:
 def is_good_description(text: str) -> bool:
     cleaned = clean_html(text)
     length = len(cleaned)
-    if length < DESC_MIN_LEN or length > DESC_MAX_LEN:
+    if length < 200 or length > DESC_MAX_LEN:
         return False
     html_ratio = len(HTML_TAG_RE.findall(text)) / max(len(text), 1)
     return html_ratio < 0.3
