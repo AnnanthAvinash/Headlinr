@@ -1,19 +1,15 @@
 package avinash.app.headlinr.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
     primary = HeadlinrColors.accent,
     primaryContainer = HeadlinrColors.accentVariant,
+    onPrimary = HeadlinrColors.white,
     onPrimaryContainer = HeadlinrColors.white,
     secondary = HeadlinrColors.accentVariant,
     background = HeadlinrColors.surfaceDark,
@@ -25,11 +21,13 @@ private val DarkColorScheme = darkColorScheme(
     error = HeadlinrColors.error,
     surfaceContainer = HeadlinrColors.cardDark,
     surfaceContainerHigh = HeadlinrColors.chipUnselectedDark,
+    outline = HeadlinrColors.outlineDark,
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = HeadlinrColors.accent,
     primaryContainer = HeadlinrColors.accentLight,
+    onPrimary = HeadlinrColors.white,
     onPrimaryContainer = HeadlinrColors.accentVariant,
     secondary = HeadlinrColors.accentVariant,
     background = HeadlinrColors.surfaceLight,
@@ -41,6 +39,7 @@ private val LightColorScheme = lightColorScheme(
     error = HeadlinrColors.error,
     surfaceContainer = HeadlinrColors.cardLight,
     surfaceContainerHigh = HeadlinrColors.chipUnselectedLight,
+    outline = HeadlinrColors.warmGray,
 )
 
 @Composable
@@ -52,7 +51,7 @@ fun HeadlinrTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = HeadlinrTypography,
         content = content
     )
 }

@@ -59,7 +59,7 @@ class NewsRepositoryImpl @Inject constructor(
 
     override suspend fun refreshNews(): Result<Unit> = syncManager.syncNews()
 
-    override suspend fun refreshCategories(): Result<Unit> = syncManager.syncCategories()
+    override suspend fun refreshCategories(): Result<Unit> = Result.success(Unit)
 
     override suspend fun getArticleById(id: String): NewsArticle? {
         articleDao.getArticleById(id)?.let { return it.toDomain() }

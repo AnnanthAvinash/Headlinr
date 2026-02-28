@@ -12,6 +12,9 @@ interface CategoryDao {
     @Query("SELECT * FROM categories ORDER BY sortOrder ASC")
     fun getCategories(): Flow<List<CategoryEntity>>
 
+    @Query("SELECT COUNT(*) FROM categories")
+    suspend fun getCount(): Int
+
     @Upsert
     suspend fun upsertAll(categories: List<CategoryEntity>)
 

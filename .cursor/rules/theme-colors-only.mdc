@@ -1,0 +1,43 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Theme Colors Only — No Static Colors in UI
+
+## Rule
+
+Every color used in Compose UI code (`app/` module) MUST come from `MaterialTheme.colorScheme.*` or, when a semantic token doesn't exist, from `HeadlinrColors.*` (defined in `ui/theme/Color.kt`).
+
+## Forbidden
+
+- `Color(0xFF...)` or any hex literal outside `Color.kt`
+- `Color.White`, `Color.Black`, `Color.Gray`, `Color.Red`, `Color.Transparent`, or any `Color.*` constant outside `Color.kt`
+- Hardcoded alpha values on raw colors (e.g., `Color.Black.copy(alpha = 0.5f)`) — define a semantic token in `HeadlinrColors` instead
+
+## Allowed
+
+| Usage | Example |
+|---|---|
+| Theme token | `MaterialTheme.colorScheme.primary` |
+| Theme token with alpha | `MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)` |
+| HeadlinrColors token | `HeadlinrColors.notificationBadge` |
+| HeadlinrColors token with alpha | `HeadlinrColors.gradientOverlay` |
+
+## Where colors ARE defined
+
+Only these two files may contain `Color(0x...)` or `Color.*` literals:
+
+1. `app/…/ui/theme/Color.kt` — the `HeadlinrColors` object
+2. `app/…/ui/theme/Theme.kt` — mapping `HeadlinrColors` into `MaterialTheme` color schemes
+
+## Why
+
+- Changing the entire app theme means editing only `Color.kt` + `Theme.kt`
+- Light/dark mode works automatically via `MaterialTheme.colorScheme`
+- No scattered hex values to hunt down during redesigns
+- Consistent color language across the entire UI
+
+## Enforcement
+
+After writing or editing any Compose UI file, grep for `Color(0x` and `Color.White|Black|Gray|Red|Transparent` in that file. If found, replace with the appropriate theme token or add a new semantic token to `HeadlinrColors`.

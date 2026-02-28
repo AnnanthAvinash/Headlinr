@@ -1,11 +1,11 @@
 """
 Headlinr — News Fetcher for GitHub Actions
-Fetches from multiple providers + RSS feeds, normalizes, deduplicates, uploads to Firebase.
-Measures RSS feed quality and stores metrics in Firestore.
+Fetches from multiple providers + RSS feeds, normalizes, deduplicates,
+bundles up to 30 articles per Firestore document, and uploads to Firebase.
 
 Two-tier schedule:
   TIER 1 (every 30 min): currentsapi latest headlines + all RSS feeds
-  TIER 2 (every 4 hours): newsdata.io + contextualweb category fills + cleanup
+  TIER 2 (every 4 hours): newsdata.io + contextualweb category fills
 """
 
 import csv
@@ -38,52 +38,55 @@ RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
 CACHE_FILE = Path(__file__).parent / ".article_cache.json"
 MAX_CACHE_SIZE = 5000
 
-FIRESTORE_ARTICLES = "news_articles"
-FIRESTORE_CATEGORIES = "categories"
-FIRESTORE_RSS_METRICS = "rss_metrics"
+FIRESTORE_ARTICLES = "article_bundles"
 
 REQUEST_TIMEOUT = 15
 IMAGE_MIN_WIDTH = 600
 IMAGE_CHECK_SAMPLE = 5
-DESC_MIN_LEN = 200
 DESC_MAX_LEN = 450
-QUALITY_THRESHOLD = 75
 
 # ---------------------------------------------------------------------------
-# RSS Feed Configuration — 16 verified feeds
+# RSS Feed Configuration — 25 verified Hindi feeds
+# Category values are short codes matching LocalCategories in the Android app
 # ---------------------------------------------------------------------------
 
 RSS_FEEDS = [
-    # National — India
-    {"url": "https://www.thehindu.com/news/national/feeder/default.rss", "category": "national", "source": "The Hindu"},
-    {"url": "https://indianexpress.com/section/india/feed/", "category": "national", "source": "Indian Express"},
-    {"url": "https://www.news18.com/rss/india.xml", "category": "national", "source": "News18"},
-    # Entertainment / Movies — India
-    {"url": "https://www.bollywoodhungama.com/rss/news.xml", "category": "entertainment", "source": "Bollywood Hungama"},
-    {"url": "https://www.news18.com/rss/movies.xml", "category": "entertainment", "source": "News18"},
-    {"url": "https://www.koimoi.com/feed/", "category": "entertainment", "source": "Koimoi"},
-    # Technology — India + Global
-    {"url": "https://indianexpress.com/section/technology/feed/", "category": "technology", "source": "Indian Express"},
-    {"url": "https://yourstory.com/feed", "category": "technology", "source": "YourStory"},
-    {"url": "https://www.theverge.com/rss/index.xml", "category": "technology", "source": "The Verge"},
-    # Sports — India
-    {"url": "https://indianexpress.com/section/sports/feed/", "category": "sports", "source": "Indian Express"},
-    {"url": "https://www.thehindu.com/sport/feeder/default.rss", "category": "sports", "source": "The Hindu"},
-    # Business — India
-    {"url": "https://indianexpress.com/section/business/feed/", "category": "business", "source": "Indian Express"},
-    {"url": "https://www.thehindu.com/business/feeder/default.rss", "category": "business", "source": "The Hindu"},
-    # World — Indian lens
-    {"url": "https://indianexpress.com/section/world/feed/", "category": "world", "source": "Indian Express"},
-    {"url": "https://www.thehindu.com/news/international/feeder/default.rss", "category": "world", "source": "The Hindu"},
-    # Science — India
-    {"url": "https://www.thehindu.com/sci-tech/science/feeder/default.rss", "category": "science", "source": "The Hindu"},
+    # National (nat)
+    {"url": "https://www.abplive.com/news/india/feed", "category": "nat", "source": "ABP Live"},
+    # Politics (pol)
+    {"url": "https://www.tv9hindi.com/india/feed", "category": "pol", "source": "TV9 Hindi"},
+    {"url": "https://hindi.business-standard.com/rss/politics.xml", "category": "pol", "source": "Business Standard Hindi"},
+    {"url": "https://www.navjivanindia.com/stories.rss?section=politics", "category": "pol", "source": "Navjivan India"},
+    # Crime (cri)
+    {"url": "https://www.abplive.com/news/crime/feed", "category": "cri", "source": "ABP Live"},
+    # Sports — includes cricket (spt)
+    {"url": "https://www.tv9hindi.com/sports/feed", "category": "spt", "source": "TV9 Hindi"},
+    {"url": "https://api.livehindustan.com/feeds/rss/sports/rssfeed.xml", "category": "spt", "source": "Live Hindustan"},
+    {"url": "https://api.livehindustan.com/feeds/rss/cricket/rssfeed.xml", "category": "spt", "source": "Live Hindustan"},
+    {"url": "https://www.indiatv.in/rssnews/topstory-sports.xml", "category": "spt", "source": "India TV"},
+    # Entertainment — Bollywood + South + OTT + Television merged (ent)
+    {"url": "https://www.abplive.com/entertainment/bollywood/feed", "category": "ent", "source": "ABP Live"},
+    {"url": "https://www.abplive.com/entertainment/tamil-cinema/feed", "category": "ent", "source": "ABP Live"},
+    {"url": "https://www.tv9hindi.com/entertainment/south-cinema/feed", "category": "ent", "source": "TV9 Hindi"},
+    {"url": "https://www.abplive.com/entertainment/ott/feed", "category": "ent", "source": "ABP Live"},
+    {"url": "https://www.tv9hindi.com/entertainment/ott/feed", "category": "ent", "source": "TV9 Hindi"},
+    {"url": "https://www.tv9hindi.com/entertainment/feed", "category": "ent", "source": "TV9 Hindi"},
+    {"url": "https://api.livehindustan.com/feeds/rss/entertainment/rssfeed.xml", "category": "ent", "source": "Live Hindustan"},
+    {"url": "https://www.indiatv.in/rssnews/topstory-entertainment.xml", "category": "ent", "source": "India TV"},
+    {"url": "https://www.abplive.com/entertainment/television/feed", "category": "ent", "source": "ABP Live"},
+    # Business (bus)
+    {"url": "https://www.abplive.com/business/feed", "category": "bus", "source": "ABP Live"},
+    {"url": "https://www.tv9hindi.com/business/feed", "category": "bus", "source": "TV9 Hindi"},
+    {"url": "https://hindi.business-standard.com/rss/business.xml", "category": "bus", "source": "Business Standard Hindi"},
+    # Stock Market (stk)
+    {"url": "https://hindi.business-standard.com/rss/markets/share-market.xml", "category": "stk", "source": "Business Standard Hindi"},
+    # Technology (tec)
+    {"url": "https://www.abplive.com/technology/feed", "category": "tec", "source": "ABP Live"},
+    # Health (hlt)
+    {"url": "https://www.abplive.com/health/feed", "category": "hlt", "source": "ABP Live"},
+    # Education (edu)
+    {"url": "https://www.abplive.com/education/feed", "category": "edu", "source": "ABP Live"},
 ]
-
-AI_KEYWORDS = re.compile(
-    r"\b(AI|Artificial Intelligence|Machine Learning|OpenAI|GPT|LLM|ChatGPT|"
-    r"Gemini|Claude|DeepSeek|Neural Network|Deep Learning|Copilot)\b",
-    re.IGNORECASE,
-)
 
 # ---------------------------------------------------------------------------
 # Category normalization
@@ -134,46 +137,20 @@ CATEGORY_MAP = {
     "other": "general",
 }
 
-CATEGORY_DISPLAY_NAMES = {
-    "trending": "Trending",
-    "national": "National",
-    "politics": "Politics",
-    "business": "Business",
-    "technology": "Technology",
-    "ai": "AI",
-    "sports": "Sports",
-    "entertainment": "Entertainment",
-    "health": "Health",
-    "science": "Science",
-    "world": "World",
-    "education": "Education",
-    "crime": "Crime",
-    "food": "Food",
-    "tourism": "Tourism",
-    "gaming": "Gaming",
-    "opinion": "Opinion",
-    "general": "General",
-}
-
-CATEGORY_SORT_ORDER = {
-    "trending": 0,
-    "national": 1,
-    "politics": 2,
-    "business": 3,
-    "technology": 4,
-    "ai": 5,
-    "sports": 6,
-    "entertainment": 7,
-    "health": 8,
-    "science": 9,
-    "world": 10,
-    "gaming": 11,
-    "education": 12,
-    "crime": 13,
-    "food": 14,
-    "tourism": 15,
-    "opinion": 16,
-    "general": 99,
+CATEGORY_SHORT = {
+    "national": "nat", "trending": "nat", "general": "nat",
+    "politics": "pol",
+    "business": "bus", "finance": "bus", "economy": "bus",
+    "sports": "spt", "cricket": "spt",
+    "entertainment": "ent", "bollywood": "ent",
+    "technology": "tec", "tech": "tec", "ai": "tec", "gaming": "tec",
+    "health": "hlt", "lifestyle": "hlt", "wellness": "hlt",
+    "world": "int", "international": "int",
+    "crime": "cri",
+    "education": "edu",
+    "science": "sci", "space": "sci", "environment": "sci",
+    "defense": "def",
+    "stock": "stk",
 }
 
 # ---------------------------------------------------------------------------
@@ -258,6 +235,11 @@ SOURCE_NORMALIZE = {
 def normalize_category(raw: str) -> str:
     slug = raw.strip().lower().replace("-", " ").replace("_", " ")
     return CATEGORY_MAP.get(slug, slug if slug else "general")
+
+
+def short_category(slug: str) -> str:
+    """Convert a normalized category slug to its short code for Firebase storage."""
+    return CATEGORY_SHORT.get(slug, "nat")
 
 
 def normalize_source(raw: str) -> str:
@@ -355,7 +337,7 @@ def fetch_currentsapi_latest() -> list[dict]:
             "articleUrl": item.get("url") or "",
             "publishedAt": published,
             "sourceName": source_norm,
-            "category": normalize_category(raw_cat),
+            "category": short_category(normalize_category(raw_cat)),
             "_provider": "currentsapi",
         })
 
@@ -406,7 +388,7 @@ def fetch_newsdata_category(category: str) -> list[dict]:
             "articleUrl": item.get("link") or "",
             "publishedAt": published,
             "sourceName": source_norm,
-            "category": normalize_category(raw_cat),
+            "category": short_category(normalize_category(raw_cat)),
             "_provider": "newsdata",
         })
 
@@ -464,7 +446,7 @@ def fetch_contextualweb_query(query: str, target_category: str) -> list[dict]:
             "articleUrl": item.get("url") or "",
             "publishedAt": published,
             "sourceName": source_norm,
-            "category": normalize_category(target_category),
+            "category": short_category(normalize_category(target_category)),
             "_provider": "contextualweb",
         })
 
@@ -554,21 +536,6 @@ def is_good_description(text: str) -> bool:
         return False
     html_ratio = len(HTML_TAG_RE.findall(text)) / max(len(text), 1)
     return html_ratio < 0.3
-
-
-def compute_quality(article: dict) -> str:
-    """Classify article as 'high' or 'low' quality based on image and description."""
-    img = article.get("imageUrl") or ""
-    if not img or not img.startswith("http"):
-        return "low"
-    if img.lower().endswith(".gif"):
-        return "low"
-    if PLACEHOLDER_PATTERNS.search(img):
-        return "low"
-    desc = article.get("description") or ""
-    if len(desc.strip()) < DESC_MIN_LEN:
-        return "low"
-    return "high"
 
 
 # ---------------------------------------------------------------------------
@@ -792,7 +759,7 @@ def fetch_single_rss_feed(feed_config: dict, seen_urls: set[str]) -> tuple[list[
             "articleUrl": article_url,
             "publishedAt": published,
             "sourceName": source_norm,
-            "category": normalize_category(category),
+            "category": category,
             "_provider": "rss",
         })
 
@@ -855,26 +822,6 @@ def fetch_all_rss_feeds() -> tuple[list[dict], list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# AI keyword filter — clone matching tech articles into AI category
-# ---------------------------------------------------------------------------
-
-def extract_ai_articles(articles: list[dict]) -> list[dict]:
-    """Find tech articles matching AI keywords, clone them into AI category."""
-    ai_articles = []
-    for a in articles:
-        if a["category"] != "technology":
-            continue
-        text = f"{a['title']} {a['description']}"
-        if AI_KEYWORDS.search(text):
-            clone = dict(a)
-            clone["category"] = "ai"
-            clone["id"] = make_article_id(a["title"], a["sourceName"] + "_ai")
-            clone["_provider"] = "ai"
-            ai_articles.append(clone)
-    return ai_articles
-
-
-# ---------------------------------------------------------------------------
 # Cache management
 # ---------------------------------------------------------------------------
 
@@ -897,96 +844,73 @@ def save_cache(ids: set[str]):
 # Firebase upload
 # ---------------------------------------------------------------------------
 
-def upload_articles(db: firestore.Client, articles: list[dict], cached_ids: set[str]) -> int:
-    """Upload new articles to Firestore. Returns count of newly written."""
+def upload_bundles(db: firestore.Client, articles: list[dict], cached_ids: set[str]) -> int:
+    """
+    Bundle fresh articles (up to 30 per document) and write to article_bundles.
+    Each bundle document uses short field names to minimise Firestore read bytes:
+      ts  — epoch-millis of the newest article in the bundle
+      c   — most common short category code in the bundle
+      a   — array of article maps with keys: i, t, d, img, u, p, s
+    Returns the total number of fresh articles written.
+    """
     new_articles = [a for a in articles if a["id"] not in cached_ids]
     if not new_articles:
         print("[INFO] No new articles to upload")
         return 0
 
+    bundle_size = 30
+    written = 0
     batch = db.batch()
-    count = 0
-    for article in new_articles:
-        doc_ref = db.collection(FIRESTORE_ARTICLES).document(article["id"])
-        batch.set(doc_ref, {
-            "id": article["id"],
-            "title": article["title"],
-            "description": article["description"],
-            "imageUrl": article["imageUrl"],
-            "articleUrl": article["articleUrl"],
-            "publishedAt": article["publishedAt"],
-            "sourceName": article["sourceName"],
-            "category": article["category"],
-            "quality": article.get("quality", "low"),
-        })
-        count += 1
+    batch_ops = 0
 
-        if count % 450 == 0:
+    for chunk_start in range(0, len(new_articles), bundle_size):
+        chunk = new_articles[chunk_start:chunk_start + bundle_size]
+
+        # Determine most common category in this chunk
+        cat_counts: dict[str, int] = {}
+        for a in chunk:
+            cat_counts[a["category"]] = cat_counts.get(a["category"], 0) + 1
+        dominant_cat = max(cat_counts, key=lambda k: cat_counts[k])
+
+        # Newest article's timestamp (articles sorted descending by publishedAt)
+        newest_ts = int(chunk[0]["publishedAt"].timestamp() * 1000) if hasattr(chunk[0]["publishedAt"], "timestamp") else int(chunk[0]["publishedAt"])
+
+        article_array = []
+        for a in chunk:
+            pub = a["publishedAt"]
+            pub_ms = int(pub.timestamp() * 1000) if hasattr(pub, "timestamp") else int(pub)
+            article_array.append({
+                "i": a["id"],
+                "t": a["title"],
+                "d": a["description"],
+                "img": a.get("imageUrl"),
+                "u": a["articleUrl"],
+                "p": pub_ms,
+                "s": a["sourceName"],
+                "c": a["category"],
+            })
+            written += 1
+
+        doc_ref = db.collection(FIRESTORE_ARTICLES).document()
+        batch.set(doc_ref, {
+            "ts": newest_ts,
+            "c": dominant_cat,
+            "a": article_array,
+        })
+        batch_ops += 1
+
+        if batch_ops >= 450:
             batch.commit()
             batch = db.batch()
-            print(f"  Committed batch of 450...")
+            batch_ops = 0
+            print("  Committed batch of 450 bundle ops...")
 
-    if count % 450 != 0:
+    if batch_ops > 0:
         batch.commit()
 
-    print(f"[OK] Uploaded {count} new articles to Firebase")
-    return count
-
-
-def update_categories(db: firestore.Client, articles: list[dict]):
-    """Extract unique categories from articles and upsert to categories collection."""
-    seen = {}
-    for a in articles:
-        cat = a["category"]
-        if cat not in seen:
-            seen[cat] = True
-
-    batch = db.batch()
-    for slug in seen:
-        display = CATEGORY_DISPLAY_NAMES.get(slug, slug.replace("_", " ").title())
-        sort = CATEGORY_SORT_ORDER.get(slug, 50)
-        doc_ref = db.collection(FIRESTORE_CATEGORIES).document(slug)
-        batch.set(doc_ref, {
-            "id": slug,
-            "name": display,
-            "slug": slug,
-            "sortOrder": sort,
-        }, merge=True)
-
-    batch.commit()
-    print(f"[OK] Updated {len(seen)} categories")
-
-
-# ---------------------------------------------------------------------------
-# RSS metrics storage
-# ---------------------------------------------------------------------------
-
-def upload_rss_metrics(db: firestore.Client, metrics_list: list[dict]):
-    """Store quality metrics for each RSS feed in Firestore."""
-    if not metrics_list:
-        return
-
-    batch = db.batch()
-    count = 0
-
-    for m in metrics_list:
-        doc_id = hashlib.sha256(m["rssUrl"].encode("utf-8")).hexdigest()[:16]
-        doc_ref = db.collection(FIRESTORE_RSS_METRICS).document(doc_id)
-
-        batch.set(doc_ref, {
-            "category": m["category"],
-            "title": m["title"],
-            "rssUrl": m["rssUrl"],
-            "totalHit": m["totalHit"],
-            "successHit": m["successHit"],
-            "successRatio": m["successRatio"],
-            "qualityPercent": m["qualityPercent"],
-            "evaluatedAt": firestore.SERVER_TIMESTAMP,
-        }, merge=True)
-        count += 1
-
-    batch.commit()
-    print(f"[OK] Stored metrics for {count} RSS feeds")
+    bundles = (len(new_articles) + bundle_size - 1) // bundle_size
+    print(f"[OK] Uploaded {written} new articles in {bundles} bundles to Firebase")
+    return written
 
 
 # ---------------------------------------------------------------------------
@@ -1067,18 +991,12 @@ def main():
         articles = fetch_currentsapi_latest()
         all_articles.extend(articles)
 
-        print("\n--- TIER 1: RSS feeds (16 feeds, parallel) ---")
+        print(f"\n--- TIER 1: RSS feeds ({len(RSS_FEEDS)} feeds, parallel) ---")
         rss_articles, rss_metrics = fetch_all_rss_feeds()
         all_articles.extend(rss_articles)
         print(f"RSS total: {len(rss_articles)} articles from {len(RSS_FEEDS)} feeds")
 
-        # AI keyword filter: clone tech articles matching AI keywords
-        ai_articles = extract_ai_articles(rss_articles)
-        if ai_articles:
-            all_articles.extend(ai_articles)
-            print(f"AI filter: {len(ai_articles)} articles cloned to AI category")
-
-    # --- TIER 2: Volume + Cleanup (every 4 hours) ---
+    # --- TIER 2: Volume (every 4 hours) ---
     if tier2:
         print("\n--- TIER 2: newsdata.io (category fills) ---")
         for cat in ["sports", "technology", "business"]:
@@ -1111,18 +1029,10 @@ def main():
 
     raw_total = len(all_articles)
     within_run_dups = raw_total - len(unique_articles)
+    print(f"\nTotal unique articles this run: {len(unique_articles)}")
 
-    # --- Tag quality ---
-    high_count = 0
-    for a in unique_articles:
-        a["quality"] = compute_quality(a)
-        if a["quality"] == "high":
-            high_count += 1
-    print(f"\nTotal unique articles this run: {len(unique_articles)} "
-          f"(high={high_count}, low={len(unique_articles) - high_count})")
-
-    # --- Upload ---
-    written = upload_articles(db, unique_articles, cached_ids)
+    # --- Upload bundles ---
+    written = upload_bundles(db, unique_articles, cached_ids)
 
     # --- Run metrics ---
     cross_run_dups = len(unique_articles) - written
@@ -1137,19 +1047,13 @@ def main():
         all_articles=all_articles,
     )
 
-    # --- Update categories ---
-    if unique_articles:
-        update_categories(db, unique_articles)
-
-    # --- Upload RSS metrics ---
+    # --- RSS feed summary (local print only) ---
     if rss_metrics:
-        print("\n--- RSS feed quality metrics ---")
+        print("\n--- RSS feed summary ---")
         for m in sorted(rss_metrics, key=lambda x: x["qualityPercent"], reverse=True):
-            status = "active" if m["qualityPercent"] >= QUALITY_THRESHOLD else "LOW"
-            print(f"  {m['title']:20s} ({m['category']:15s}): "
+            print(f"  {m['title']:20s} ({m['category']:5s}): "
                   f"{m['successHit']:>3}/{m['totalHit']:<3} articles | "
-                  f"quality={m['qualityPercent']:5.1f}% | {status}")
-        upload_rss_metrics(db, rss_metrics)
+                  f"quality={m['qualityPercent']:5.1f}%")
 
     # --- Save cache ---
     new_ids = {a["id"] for a in unique_articles}

@@ -12,7 +12,6 @@ fun ArticleEntity.toDomain(): NewsArticle = NewsArticle(
     publishedAt = publishedAt,
     sourceName = sourceName,
     category = category,
-    quality = quality
 )
 
 fun NewsArticle.toEntity(cachedAt: Long = System.currentTimeMillis()): ArticleEntity = ArticleEntity(
@@ -24,6 +23,5 @@ fun NewsArticle.toEntity(cachedAt: Long = System.currentTimeMillis()): ArticleEn
     publishedAt = publishedAt,
     sourceName = sourceName,
     category = category,
-    quality = quality,
     cachedAt = cachedAt
 )

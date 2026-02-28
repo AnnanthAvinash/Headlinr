@@ -15,75 +15,65 @@ alwaysApply: true
 | Storage | 1 GiB | |
 | Egress | 10 GiB/month | |
 
-GitHub Actions cleanup overhead: 0 reads/day (cleanup removed — no Firebase deletions)
 Available for app users: **~50,000 reads/day**
+
+## Firestore Collection
+
+Single active collection: **`article_bundles`**
+
+Each document holds up to 30 articles in an `a` array with short field names (`i,t,d,img,u,p,s,c`).
+1 Firestore read = up to 30 articles.
+
+Legacy collections (`news_articles`, `categories`, `rss_metrics`) deleted via one-time `cleanup-firebase.yml` workflow.
 
 ## Sync Parameters (SyncManager.kt)
 
 | Parameter | Value | Why |
 |-----------|-------|-----|
 | `MIN_SYNC_INTERVAL_MS` | 10 min | Pull-to-refresh cooldown — prevents spamming reads |
-| `BATCH_SIZE` | 50 | Matches ~50-80 new articles per 30-min GitHub Actions run |
-| `MAX_SYNC_CAP` | 300 | Full sync on first open — rich content across all categories |
+| `BATCH_SIZE` | 50 | Incremental sync target — needs ceil(50/30) = 2 bundle reads |
+| `MAX_SYNC_CAP` | 300 | Full sync target — needs ceil(300/30) = 10 bundle reads |
 | `STALE_THRESHOLD_MS` | 24 hours | Triggers full sync (300) vs incremental sync (50) |
-| `CATEGORY_SYNC_INTERVAL_MS` | 24 hours | Categories change rarely |
 | `AUTO_REFRESH_INTERVAL_MS` | 30 min | Matches GitHub Actions schedule — silent, in viewModelScope |
 
 ## Deletion Policy (Firebase + Room)
 
-**Currently: NO deletions anywhere.**
-
-- **Firebase**: `cleanup_old_articles()` removed from `fetch_news.py`. Articles accumulate indefinitely.
+- **Firebase**: Legacy collections deleted via one-time cleanup script. `article_bundles` accumulates indefinitely.
 - **Room**: Only `@Upsert`. DAO delete methods exist but have zero callers in the sync flow.
 - **Bookmarks**: User can unbookmark (removes from bookmarks table only, not articles).
 - **Task F2 (pending)**: Full deletion policy redesign for both Firebase and Room. Not yet designed or approved.
-- Until F2 is done, both Firebase and Room accumulate all articles indefinitely.
+- Until F2 is done, both Firebase (`article_bundles`) and Room accumulate all articles indefinitely.
 
-## Quality-Aware Sync Flow
-
-Every sync fetches **high quality first**, then fills the gap with low quality:
-
-```
-Step 1: Fetch up to LIMIT articles WHERE quality = "high"
-Step 2: If highCount < LIMIT → fetch (LIMIT - highCount) WHERE quality = "low"
-Step 3: Save all to Room with quality tag
-```
-
-- Incremental sync: LIMIT = BATCH_SIZE (50)
-- Full sync: LIMIT = MAX_SYNC_CAP (300)
-- Worst case: +1 extra Firebase query per sync (gap-fill). Typical case: 0 extra reads.
-- Requires composite Firestore index: `quality ASC + publishedAt DESC` on `news_articles`
-
-## Six Safety Guards
+## Four Safety Guards
 
 1. **Pull-to-refresh cooldown** = 10 min — skip if lastSync < 10 min ago, use Room cache
-2. **Max sync cap** = 300 — only on first open or after 24h gap
-3. **Incremental batch** = 50 — keeps each sync lightweight
+2. **Max sync cap** = 300 articles (10 bundle reads) — only on first open or after 24h gap
+3. **Incremental batch** = 50 articles (2 bundle reads) — keeps each sync lightweight
 4. **Auto-refresh** = 30 min — silent, foreground only (viewModelScope)
-5. **Category sync** = once/day — ~18 reads instead of 18 per open
-6. **Quality-first fetch** — high quality articles always fetched first, low quality only fills gaps
 
-*Note: Guard for "Smart Room retention" removed — no Room deletions until Task F2 is implemented.*
+*Note: Category sync guard removed — categories are now seeded locally from `LocalCategories.kt`, zero Firebase reads.*
 
-## Read Budget Per User Per Day
+## Read Budget Per User Per Day (bundle system — 1 read = 30 articles)
 
-| User Type | Session | Pulls | Auto-refreshes | Reads/Day |
-|-----------|---------|-------|----------------|-----------|
-| Light (15 min) | 15 min | 1 | 0 | ~78 |
-| Normal (1 hr) | 1 hr | 2 | 1 | ~168 |
-| Heavy (3-4 hr) | 3 hr | 5 | 5 | ~438 |
-| Power (8 hr) | 8 hr | 10 | 16 | ~828 |
-| First-time (full) | 30 min | 1 | 0 | ~348 |
+| User Type | Session | Pulls | Auto-refreshes | Bundle Reads/Day | Approx. Articles |
+|-----------|---------|-------|----------------|------------------|------------------|
+| Light (15 min) | 15 min | 1 | 0 | ~3 | ~90 |
+| Normal (1 hr) | 1 hr | 2 | 1 | ~6 | ~180 |
+| Heavy (3-4 hr) | 3 hr | 5 | 5 | ~15 | ~450 |
+| Power (8 hr) | 8 hr | 10 | 16 | ~28 | ~840 |
+| First-time (full) | 30 min | 1 | 0 | ~10 | ~300 |
 
 ## DAU Capacity on Free Tier
 
 | Scenario | DAU |
 |----------|-----|
-| All light | 641 |
-| All normal | 297 |
-| All heavy | 114 |
-| Realistic mix (60% light, 30% normal, 10% heavy) | **~381** |
-| Early stage (10-20 users) | ~12% of limit |
+| All light | ~16,600 |
+| All normal | ~8,300 |
+| All heavy | ~3,300 |
+| Realistic mix (60% light, 30% normal, 10% heavy) | **~10,000+** |
+| Early stage (10-20 users) | <0.1% of limit |
+
+(~29x improvement over single-article reads)
 
 ## Zero Firebase Reads Operations
 
@@ -91,13 +81,14 @@ Step 3: Save all to Room with quality tag
 - Switch category → Room PagingSource
 - Load more (pagination) → Room PagingSource
 - Search → Room FTS query
+- Category list → Room (seeded locally from `LocalCategories.kt`)
 
 ## Rules for Any Code Change
 
 - NEVER add a new Firebase read path without calculating its impact on the daily budget
 - NEVER reduce sync intervals below current values without recalculating DAU capacity
-- NEVER remove or weaken any of the 6 safety guards
-- NEVER remove the quality-first fetch logic — it ensures best content surfaces first
-- NEVER add deletion calls (Room OR Firebase) until Task F2 (deletion policy redesign) is designed and approved
+- NEVER remove or weaken any of the 4 safety guards
+- NEVER add deletion calls to `article_bundles` until Task F2 (deletion policy redesign) is designed and approved
 - Room is the SINGLE SOURCE OF TRUTH — UI never reads Firestore directly
 - Any new sync feature must show reads/day math before implementation
+- NEVER query individual articles from Firebase — always read full bundles
