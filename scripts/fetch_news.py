@@ -891,7 +891,8 @@ def upload_bundles(db: firestore.Client, articles: list[dict], cached_ids: set[s
             })
             written += 1
 
-        doc_ref = db.collection(FIRESTORE_ARTICLES).document()
+        bundle_id = f"{newest_ts}_{dominant_cat}_{chunk[0]['id'][:8]}"
+        doc_ref = db.collection(FIRESTORE_ARTICLES).document(bundle_id)
         batch.set(doc_ref, {
             "ts": newest_ts,
             "c": dominant_cat,
@@ -1031,8 +1032,26 @@ def main():
     within_run_dups = raw_total - len(unique_articles)
     print(f"\nTotal unique articles this run: {len(unique_articles)}")
 
+    # --- Article verification gate ---
+    # Applies to ALL sources (RSS + API). Gates: valid image + description >= 300 chars.
+    verified = []
+    gate_no_img = 0
+    gate_short_desc = 0
+    for a in unique_articles:
+        img = a.get("imageUrl") or ""
+        if not _is_valid_image_url(img):
+            gate_no_img += 1
+            continue
+        if len((a.get("description") or "").strip()) < 300:
+            gate_short_desc += 1
+            continue
+        verified.append(a)
+    print(f"Verification gate: {len(verified)} passed | "
+          f"{gate_no_img} dropped (bad image) | "
+          f"{gate_short_desc} dropped (desc < 300 chars)")
+
     # --- Upload bundles ---
-    written = upload_bundles(db, unique_articles, cached_ids)
+    written = upload_bundles(db, verified, cached_ids)
 
     # --- Run metrics ---
     cross_run_dups = len(unique_articles) - written
@@ -1055,8 +1074,8 @@ def main():
                   f"{m['successHit']:>3}/{m['totalHit']:<3} articles | "
                   f"quality={m['qualityPercent']:5.1f}%")
 
-    # --- Save cache ---
-    new_ids = {a["id"] for a in unique_articles}
+    # --- Save cache (only verified articles — dropped ones can retry next run) ---
+    new_ids = {a["id"] for a in verified}
     cached_ids.update(new_ids)
     save_cache(cached_ids)
     print(f"Saved {len(cached_ids)} article IDs to cache")
