@@ -1,6 +1,6 @@
 """
 Headlinr — News Fetcher for GitHub Actions
-Fetches from 34 Hindi RSS feeds, normalizes, deduplicates,
+Fetches from 29 Hindi RSS feeds from 12 sources, normalizes, deduplicates,
 bundles up to 50 articles per Firestore document, and uploads to Firebase.
 
 Single-tier schedule: every 30 min, RSS feeds only.
@@ -45,7 +45,9 @@ IMAGE_CHECK_SAMPLE = 5
 DESC_MAX_LEN = 500
 
 # ---------------------------------------------------------------------------
-# RSS Feed Configuration — 34 verified Hindi feeds (HLNAPP-39)
+# RSS Feed Configuration — 29 verified Hindi feeds from 12 sources
+# Jansatta removed (all feeds return 403/redirect, confirmed dead 2026-03-19)
+# Zee News switched from English to Hindi RSS
 # Category values are short codes; pol/cri map to nat, stk to bus
 # ---------------------------------------------------------------------------
 
@@ -60,13 +62,11 @@ RSS_FEEDS = [
     {"url": "https://hindi.oneindia.com/rss/feeds/hindi-india-fb.xml", "category": "nat", "source": "OneIndia Hindi"},
     {"url": "https://hindi.oneindia.com/rss/feeds/hindi-trending-fb.xml", "category": "nat", "source": "OneIndia Hindi"},
     {"url": "https://feeds.bbci.co.uk/hindi/rss.xml", "category": "nat", "source": "BBC Hindi"},
-    {"url": "https://www.jansatta.com/national/feed/", "category": "nat", "source": "Jansatta"},
     {"url": "https://www.prabhatkhabar.com/national/feed", "category": "nat", "source": "Prabhat Khabar"},
-    {"url": "https://zeenews.india.com/rss/india-national-news.xml", "category": "nat", "source": "Zee News"},
+    {"url": "https://zeenews.india.com/hindi/rss.xml", "category": "nat", "source": "Zee News Hindi"},
     # ── Sports (spt) ──────────────────────────────────────────────────────
     {"url": "https://www.tv9hindi.com/sports/feed", "category": "spt", "source": "TV9 Hindi"},
     {"url": "https://www.indiatv.in/rssnews/topstory-sports.xml", "category": "spt", "source": "India TV"},
-    {"url": "https://www.jansatta.com/khel/feed/", "category": "spt", "source": "Jansatta"},
     {"url": "https://www.prabhatkhabar.com/sports/feed", "category": "spt", "source": "Prabhat Khabar"},
     # ── Entertainment (ent) ───────────────────────────────────────────────
     {"url": "https://www.abplive.com/entertainment/bollywood/feed", "category": "ent", "source": "ABP Live"},
@@ -74,7 +74,6 @@ RSS_FEEDS = [
     {"url": "https://www.indiatv.in/rssnews/topstory-entertainment.xml", "category": "ent", "source": "India TV"},
     {"url": "https://www.bollywoodhungama.com/rss/news.xml", "category": "ent", "source": "Bollywood Hungama"},
     {"url": "https://hindi.oneindia.com/rss/feeds/hindi-entertainment-fb.xml", "category": "ent", "source": "OneIndia Hindi"},
-    {"url": "https://www.jansatta.com/entertainment/feed/", "category": "ent", "source": "Jansatta"},
     # ── Business (bus) ────────────────────────────────────────────────────
     {"url": "https://www.abplive.com/business/feed", "category": "bus", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/business/feed", "category": "bus", "source": "TV9 Hindi"},
@@ -84,10 +83,8 @@ RSS_FEEDS = [
     # ── Technology (tec) ──────────────────────────────────────────────────
     {"url": "https://www.abplive.com/technology/feed", "category": "tec", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/technology/feed", "category": "tec", "source": "TV9 Hindi"},
-    {"url": "https://www.jansatta.com/technology-news/feed/", "category": "tec", "source": "Jansatta"},
     # ── Health (hlt) ──────────────────────────────────────────────────────
     {"url": "https://www.abplive.com/health/feed", "category": "hlt", "source": "ABP Live"},
-    {"url": "https://www.jansatta.com/health-news-hindi/feed/", "category": "hlt", "source": "Jansatta"},
     # ── Education (edu) ───────────────────────────────────────────────────
     {"url": "https://www.abplive.com/education/feed", "category": "edu", "source": "ABP Live"},
     {"url": "https://hindi.etnownews.com/feeds/gns-etn-hindi-education.xml", "category": "edu", "source": "ET Now Swadesh"},
@@ -201,10 +198,22 @@ HINDI_STOPWORDS = frozenset({
     "और", "या", "पर", "लेकिन", "तो", "भी", "ही", "सिर्फ", "बस",
     "न्यूज़", "खबर", "समाचार", "रिपोर्ट", "दावा", "कहा", "बोला",
     "मिली", "मिला", "हुआ", "हुई", "कर", "किया", "किए", "गया", "गई",
-    "दिया", "दी", "लिया", "ली", "पड़ा", "पड़ी",
+    "दिया", "दी", "लिया", "ली", "पड़ा", "पड़ी", "ने", "ना",
     "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of",
     "is", "are", "was", "were", "news", "report", "says",
+    # Filler words common in Hindi headlines
+    "बड़ा", "बड़ी", "बड़े", "नया", "नई", "नए", "अब", "सब", "कुछ",
+    "जानें", "जानिए", "देखें", "पढ़ें", "सामने", "आया", "आई", "आए",
+    "वाला", "वाली", "वाले", "रहा", "रही", "रहे", "सकता", "सकती", "सकते",
+    "बाद", "पहले", "बीच", "साथ", "ऊपर", "नीचे", "अंदर", "बाहर",
+    "यहां", "वहां", "कहां", "कहाँ", "कौन", "किस", "किसी", "अपने", "अपनी",
+    "एक", "दो", "तीन", "चार", "पांच", "इन", "उन", "जिस", "जिन",
+    "करने", "होने", "लेने", "देने", "आने", "जाने",
+    "latest", "breaking", "update", "updates", "live", "today", "video",
 })
+
+TRENDING_SIMILARITY_THRESHOLD = 0.30
+TRENDING_MIN_WORDS = 3
 
 # Quality gate (plan 26.4)
 MIN_DESC_LEN = 250
@@ -245,13 +254,11 @@ SOURCE_NORMALIZE = {
     "thewire.in": "The Wire",
     "indianexpress.com": "Indian Express",
     "dnaindia.com": "DNA India",
-    "zeenews.india.com": "Zee News",
-    "www.zeenews.india.com": "Zee News",
+    "zeenews.india.com": "Zee News Hindi",
+    "www.zeenews.india.com": "Zee News Hindi",
     "aajtak.in": "Aaj Tak",
     "hindi.oneindia.com": "OneIndia Hindi",
     "oneindia.com": "OneIndia Hindi",
-    "jansatta.com": "Jansatta",
-    "www.jansatta.com": "Jansatta",
     "prabhatkhabar.com": "Prabhat Khabar",
     "www.prabhatkhabar.com": "Prabhat Khabar",
     "hindi.etnownews.com": "ET Now Swadesh",
@@ -309,6 +316,22 @@ def short_category(slug: str) -> str:
     return CATEGORY_SHORT.get(slug, "nat")
 
 
+_HINDI_SUFFIXES = sorted([
+    "ों", "ें", "ां", "ाँ",
+    "ियों", "ियां", "ियाँ",
+    "ाओं", "ाएं", "ाएँ",
+    "ी", "ा", "े",
+], key=len, reverse=True)
+
+
+def _hindi_stem(word: str) -> str:
+    """Lightweight Hindi suffix stripping. Keeps root ≥ 2 chars."""
+    for suffix in _HINDI_SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 2:
+            return word[:-len(suffix)]
+    return word
+
+
 def normalize_title(title: str) -> str:
     """Normalize title for dedup and trending clustering (plan 26.2)."""
     if not title or not title.strip():
@@ -318,6 +341,15 @@ def normalize_title(title: str) -> str:
     words = t.split()
     words = [w for w in words if w not in HINDI_STOPWORDS and len(w) > 1]
     return " ".join(words)
+
+
+def _stem_title_words(title: str) -> frozenset[str]:
+    """Normalize + stem title words for trending similarity comparison."""
+    norm = normalize_title(title)
+    if not norm:
+        return frozenset()
+    words = norm.split()
+    return frozenset(_hindi_stem(w) for w in words if len(w) > 1)
 
 
 def normalize_source(raw: str) -> str:
@@ -930,7 +962,7 @@ def save_cache(ids: set[str]):
 SOURCE_QUALITY = {
     "Times of India": 1, "NDTV": 1, "Reuters": 1, "BBC": 1, "The Hindu": 1,
     "ABP Live": 1, "TV9 Hindi": 1, "India TV": 1, "Aaj Tak": 1,
-    "BBC Hindi": 1, "Jansatta": 1, "Zee News": 1, "OneIndia Hindi": 1,
+    "BBC Hindi": 1, "Zee News Hindi": 1, "OneIndia Hindi": 1,
     "Prabhat Khabar": 1, "ET Now Swadesh": 1,
 }
 
@@ -954,39 +986,84 @@ def best_article(articles: list[dict]) -> dict:
     ))
 
 
+def _jaccard_similarity(a: frozenset[str], b: frozenset[str]) -> float:
+    if not a or not b:
+        return 0.0
+    intersection = len(a & b)
+    union = len(a | b)
+    return intersection / union if union else 0.0
+
+
+def _find_best_cluster(word_set: frozenset[str],
+                       cluster_keys: list[frozenset[str]],
+                       threshold: float) -> int:
+    """Return index of best matching cluster, or -1 if none above threshold."""
+    best_idx, best_sim = -1, 0.0
+    for i, ck in enumerate(cluster_keys):
+        sim = _jaccard_similarity(word_set, ck)
+        if sim > best_sim:
+            best_sim = sim
+            best_idx = i
+    return best_idx if best_sim >= threshold else -1
+
+
 def compute_trending(articles: list[dict]) -> tuple[list[dict], dict]:
     """
-    Mark trending articles with "tr": 1 (plan 26.7).
-    24h filter, cluster by normalized title, freq >= 2 distinct sources.
+    Mark trending articles with "tr": 1.
+    Uses Jaccard similarity on title word sets for clustering instead of
+    exact match, since Hindi sources use different wording for the same story.
+    Requires freq >= 2 distinct sources within 24h window.
     Returns (articles, stats_dict).
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     recent = [a for a in articles if (a.get("publishedAt") or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff]
     recent = [a for a in recent if a.get("category") in TOP_TRENDING_CATEGORIES]
 
-    clusters: dict[str, list[dict]] = {}
+    cluster_keys: list[frozenset[str]] = []
+    cluster_articles: list[list[dict]] = []
+
     for a in recent:
-        key = normalize_title(a.get("title", ""))
-        if not key:
+        ws = _stem_title_words(a.get("title", ""))
+        if len(ws) < TRENDING_MIN_WORDS:
             continue
-        clusters.setdefault(key, []).append(a)
+
+        idx = _find_best_cluster(ws, cluster_keys, TRENDING_SIMILARITY_THRESHOLD)
+        if idx >= 0:
+            cluster_articles[idx].append(a)
+            cluster_keys[idx] = cluster_keys[idx] | ws
+        else:
+            cluster_keys.append(ws)
+            cluster_articles.append([a])
 
     qualified = 0
     trending_ids = set()
-    for key, group in clusters.items():
+    near_misses = []
+    for i, group in enumerate(cluster_articles):
         sources = {a.get("sourceName", "") for a in group}
         if len(sources) >= 2:
             qualified += 1
             best = best_article(group)
             trending_ids.add(best["id"])
+            if qualified <= 5:
+                sample_titles = [a.get("title", "")[:60] for a in group[:3]]
+                print(f"  [trending] cluster {qualified}: {len(sources)} sources, "
+                      f"{len(group)} articles — {sample_titles}")
+        elif len(group) >= 2:
+            near_misses.append((len(group), list(sources), group[0].get("title", "")[:60]))
 
     for a in articles:
         if a["id"] in trending_ids:
             a["tr"] = 1
 
+    if near_misses and qualified == 0:
+        near_misses.sort(key=lambda x: x[0], reverse=True)
+        print(f"  [trending] near-misses (same source, multi-article):")
+        for count, srcs, title in near_misses[:5]:
+            print(f"    {count} articles, sources={srcs} — {title}")
+
     stats = {
         "marked": len(trending_ids),
-        "clusters_total": len(clusters),
+        "clusters_total": len(cluster_articles),
         "clusters_qualified": qualified,
     }
     print(f"Trending: {stats['marked']} articles marked | "
