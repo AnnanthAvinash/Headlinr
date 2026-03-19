@@ -936,10 +936,11 @@ def best_article(articles: list[dict]) -> dict:
     ))
 
 
-def compute_trending(articles: list[dict]) -> list[dict]:
+def compute_trending(articles: list[dict]) -> tuple[list[dict], dict]:
     """
     Mark trending articles with "tr": 1 (plan 26.7).
     24h filter, cluster by normalized title, freq >= 2 distinct sources.
+    Returns (articles, stats_dict).
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     recent = [a for a in articles if (a.get("publishedAt") or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff]
@@ -952,10 +953,12 @@ def compute_trending(articles: list[dict]) -> list[dict]:
             continue
         clusters.setdefault(key, []).append(a)
 
+    qualified = 0
     trending_ids = set()
     for key, group in clusters.items():
         sources = {a.get("sourceName", "") for a in group}
         if len(sources) >= 2:
+            qualified += 1
             best = best_article(group)
             trending_ids.add(best["id"])
 
@@ -963,10 +966,15 @@ def compute_trending(articles: list[dict]) -> list[dict]:
         if a["id"] in trending_ids:
             a["tr"] = 1
 
-    print(f"Trending: {len(trending_ids)} articles marked | "
-          f"{len(recent)} recent in {len(clusters)} clusters | "
-          f"{sum(1 for g in clusters.values() if len({a.get('sourceName','') for a in g}) >= 2)} clusters qualified")
-    return articles
+    stats = {
+        "marked": len(trending_ids),
+        "clusters_total": len(clusters),
+        "clusters_qualified": qualified,
+    }
+    print(f"Trending: {stats['marked']} articles marked | "
+          f"{len(recent)} recent in {stats['clusters_total']} clusters | "
+          f"{stats['clusters_qualified']} clusters qualified")
+    return articles, stats
 
 
 # ---------------------------------------------------------------------------
@@ -1059,6 +1067,10 @@ def upload_bundles(db: firestore.Client, articles: list[dict], cached_ids: set[s
 METRICS_CSV = Path(__file__).resolve().parent.parent / "logs" / "run_metrics.csv"
 
 
+CATEGORY_CODES = ["nat", "spt", "ent", "bus", "tec", "hlt", "edu"]
+PROVIDERS = ["currentsapi", "rss", "newsdata", "contextualweb"]
+
+
 def append_run_metrics(
     tier_label: str,
     raw_total: int,
@@ -1067,9 +1079,15 @@ def append_run_metrics(
     cross_run_dups: int,
     fresh_unique: int,
     all_articles: list[dict],
+    trending_count: int = 0,
+    cat_counts: dict[str, int] | None = None,
+    gate_dropped_image: int = 0,
+    gate_dropped_desc: int = 0,
+    duration_sec: float = 0.0,
 ):
     """Append one row of run metrics to the CSV log file."""
     provider_counts = Counter(a.get("_provider", "unknown") for a in all_articles)
+    cat_counts = cat_counts or {}
     row = {
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "tier": tier_label,
@@ -1083,6 +1101,17 @@ def append_run_metrics(
         "newsdata": provider_counts.get("newsdata", 0),
         "contextualweb": provider_counts.get("contextualweb", 0),
         "ai": provider_counts.get("ai", 0),
+        "trending_count": trending_count,
+        "per_cat_nat": cat_counts.get("nat", 0),
+        "per_cat_spt": cat_counts.get("spt", 0),
+        "per_cat_ent": cat_counts.get("ent", 0),
+        "per_cat_bus": cat_counts.get("bus", 0),
+        "per_cat_tec": cat_counts.get("tec", 0),
+        "per_cat_hlt": cat_counts.get("hlt", 0),
+        "per_cat_edu": cat_counts.get("edu", 0),
+        "gate_dropped_image": gate_dropped_image,
+        "gate_dropped_desc": gate_dropped_desc,
+        "duration_sec": round(duration_sec, 1),
     }
     fieldnames = list(row.keys())
     write_header = not METRICS_CSV.exists() or METRICS_CSV.stat().st_size == 0
@@ -1107,7 +1136,101 @@ def determine_tier() -> tuple[bool, bool]:
     return tier1, tier2
 
 
+def _provider_counter(articles: list[dict]) -> dict[str, int]:
+    counts = {p: 0 for p in PROVIDERS}
+    for a in articles:
+        p = a.get("_provider", "unknown")
+        counts[p] = counts.get(p, 0) + 1
+    return counts
+
+
+def print_summary(
+    run_start: float,
+    raw_total: int,
+    within_run_dups: int,
+    unique_articles: list[dict],
+    gate_no_img: int,
+    gate_short_desc: int,
+    verified: list[dict],
+    trending_stats: dict,
+    written: int,
+    cache_before: int,
+    cache_after: int,
+    raw_by_provider: dict[str, int],
+    dedup_by_provider: dict[str, int],
+    quality_by_provider: dict[str, int],
+    fresh_by_provider: dict[str, int],
+    timings: dict[str, float],
+):
+    """Print the structured summary block (AC1–AC6)."""
+    total_dur = time.time() - run_start
+    quality_total = len(verified)
+    dedup_total = len(unique_articles)
+
+    print()
+    print("=" * 60)
+    print(f"  HEADLINR FETCH SUMMARY — {datetime.now(timezone.utc).isoformat()}")
+    print("=" * 60)
+
+    # AC1: Per-provider table
+    print()
+    print(f"  {'PROVIDER':<16s} {'RAW':>5s} {'DEDUP':>7s} {'QUALITY':>9s} {'FRESH':>7s}")
+    for p in PROVIDERS:
+        print(f"  {p:<16s} {raw_by_provider.get(p,0):>5d} "
+              f"{dedup_by_provider.get(p,0):>7d} "
+              f"{quality_by_provider.get(p,0):>9d} "
+              f"{fresh_by_provider.get(p,0):>7d}")
+    print(f"  {'TOTAL':<16s} {raw_total:>5d} {dedup_total:>7d} {quality_total:>9d} {written:>7d}")
+
+    # AC2: Per-category breakdown
+    cat_counts = Counter(a.get("category", "?") for a in verified)
+    print()
+    print(f"  {'CATEGORY':<12s} {'COUNT':>5s}")
+    for c in CATEGORY_CODES:
+        cnt = cat_counts.get(c, 0)
+        gap = "  ⚠ ZERO" if cnt == 0 else ""
+        print(f"  {c:<12s} {cnt:>5d}{gap}")
+    print(f"  {'TOTAL':<12s} {quality_total:>5d}")
+
+    # AC3: Quality gate stats
+    pct = (quality_total / max(dedup_total, 1)) * 100
+    print()
+    print(f"  QUALITY GATE")
+    print(f"  Passed:     {quality_total} / {dedup_total}  ({pct:.1f}%)")
+    print(f"  Bad image:  {gate_no_img}")
+    print(f"  Short desc: {gate_short_desc}")
+
+    # AC4: Trending stats
+    print()
+    print(f"  TRENDING")
+    print(f"  Marked:     {trending_stats.get('marked', 0)} articles")
+    print(f"  Clusters:   {trending_stats.get('clusters_total', 0)} total | "
+          f"{trending_stats.get('clusters_qualified', 0)} qualified (freq >= 2)")
+
+    # AC5: Freshness stats
+    cross_run_dups = dedup_total - written
+    print()
+    print(f"  FRESHNESS")
+    print(f"  Fresh (uploaded):    {written}")
+    print(f"  Cross-run dups:      {cross_run_dups}")
+    print(f"  Within-run dups:     {within_run_dups}")
+    print(f"  Cache: {cache_before} → {cache_after}")
+
+    # AC6: Timing
+    print()
+    print(f"  TIMING")
+    for label, key in [("API fetch", "api"), ("RSS fetch", "rss"),
+                       ("Quality gate", "gate"), ("Trending", "trending"),
+                       ("Firebase", "firebase")]:
+        print(f"  {label + ':':<16s} {timings.get(key, 0.0):>5.1f}s")
+    print(f"  {'TOTAL:':<16s} {total_dur:>5.1f}s")
+
+    print("=" * 60)
+
+
 def main():
+    run_start = time.time()
+
     print("=" * 60)
     print(f"Headlinr News Fetcher — {datetime.now(timezone.utc).isoformat()}")
     print("=" * 60)
@@ -1119,24 +1242,34 @@ def main():
 
     db = firestore.Client()
     cached_ids = load_cache()
-    print(f"Loaded {len(cached_ids)} cached article IDs")
+    cache_before = len(cached_ids)
+    print(f"Loaded {cache_before} cached article IDs")
 
     all_articles = []
     rss_metrics = []
+    timings: dict[str, float] = {}
 
     # --- TIER 1: Freshness (every run) ---
     if tier1:
+        t0 = time.time()
         print("\n--- TIER 1: currentsapi (latest headlines) ---")
         articles = fetch_currentsapi_latest()
         all_articles.extend(articles)
+        timings["api"] = time.time() - t0
 
+        t0 = time.time()
         print(f"\n--- TIER 1: RSS feeds ({len(RSS_FEEDS)} feeds, parallel) ---")
         rss_articles, rss_metrics = fetch_all_rss_feeds()
         all_articles.extend(rss_articles)
+        timings["rss"] = time.time() - t0
         print(f"RSS total: {len(rss_articles)} articles from {len(RSS_FEEDS)} feeds")
+    else:
+        timings["api"] = 0.0
+        timings["rss"] = 0.0
 
     # --- TIER 2: Volume (every 4 hours) ---
     if tier2:
+        t0 = time.time()
         print("\n--- TIER 2: newsdata.io (category fills) ---")
         for cat in ["sports", "technology", "business"]:
             articles = fetch_newsdata_category(cat)
@@ -1153,10 +1286,15 @@ def main():
             articles = fetch_contextualweb_query(query, target_cat)
             all_articles.extend(articles)
             time.sleep(1)
+        timings["api"] += time.time() - t0
 
     if not all_articles:
         print("\n[DONE] No articles fetched. Exiting.")
         return
+
+    # Raw counts per provider (before any dedup)
+    raw_by_provider = _provider_counter(all_articles)
+    raw_total = len(all_articles)
 
     # --- Deduplicate within this batch (Layer 1: ID hash) ---
     seen_ids = set()
@@ -1166,12 +1304,12 @@ def main():
             seen_ids.add(a["id"])
             unique_articles.append(a)
 
-    raw_total = len(all_articles)
     within_run_dups = raw_total - len(unique_articles)
+    dedup_by_provider = _provider_counter(unique_articles)
     print(f"\nTotal unique articles this run: {len(unique_articles)}")
 
     # --- Quality gate (plan 26.4) ---
-    # MIN_DESC_LEN=250; description truncated to max 500 chars
+    t0 = time.time()
     verified = []
     gate_no_img = 0
     gate_short_desc = 0
@@ -1185,19 +1323,42 @@ def main():
             gate_short_desc += 1
             continue
         verified.append(a)
+    timings["gate"] = time.time() - t0
+    quality_by_provider = _provider_counter(verified)
     print(f"Quality gate: {len(verified)} passed | "
           f"{gate_no_img} dropped (bad image) | "
           f"{gate_short_desc} dropped (desc < {MIN_DESC_LEN})")
 
     # --- Compute trending (plan 26) ---
-    verified = compute_trending(verified)
+    t0 = time.time()
+    verified, trending_stats = compute_trending(verified)
+    timings["trending"] = time.time() - t0
 
     # --- Upload bundles ---
+    t0 = time.time()
     written = upload_bundles(db, verified, cached_ids)
+    timings["firebase"] = time.time() - t0
 
-    # --- Run metrics ---
+    # Fresh counts per provider
+    fresh_ids = {a["id"] for a in verified if a["id"] not in cached_ids}
+    fresh_by_provider = {p: 0 for p in PROVIDERS}
+    for a in verified:
+        if a["id"] in fresh_ids:
+            p = a.get("_provider", "unknown")
+            fresh_by_provider[p] = fresh_by_provider.get(p, 0) + 1
+
+    # --- Save cache (only verified articles — dropped ones can retry next run) ---
+    new_ids = {a["id"] for a in verified}
+    cached_ids.update(new_ids)
+    save_cache(cached_ids)
+    cache_after = len(cached_ids)
+    print(f"Saved {cache_after} article IDs to cache")
+
+    # --- Run metrics (AC7) ---
     cross_run_dups = len(unique_articles) - written
     tier_label = "tier1+2" if tier2 else "tier1"
+    cat_counts = Counter(a.get("category", "?") for a in verified)
+    duration_sec = time.time() - run_start
     append_run_metrics(
         tier_label=tier_label,
         raw_total=raw_total,
@@ -1206,6 +1367,11 @@ def main():
         cross_run_dups=cross_run_dups,
         fresh_unique=written,
         all_articles=all_articles,
+        trending_count=trending_stats.get("marked", 0),
+        cat_counts=dict(cat_counts),
+        gate_dropped_image=gate_no_img,
+        gate_dropped_desc=gate_short_desc,
+        duration_sec=duration_sec,
     )
 
     # --- RSS feed summary (local print only) ---
@@ -1216,15 +1382,25 @@ def main():
                   f"{m['successHit']:>3}/{m['totalHit']:<3} articles | "
                   f"quality={m['qualityPercent']:5.1f}%")
 
-    # --- Save cache (only verified articles — dropped ones can retry next run) ---
-    new_ids = {a["id"] for a in verified}
-    cached_ids.update(new_ids)
-    save_cache(cached_ids)
-    print(f"Saved {len(cached_ids)} article IDs to cache")
-
-    print(f"\n{'=' * 60}")
-    print(f"DONE — Written: {written} | Total cached: {len(cached_ids)}")
-    print(f"{'=' * 60}")
+    # --- Structured summary (AC1–AC6) ---
+    print_summary(
+        run_start=run_start,
+        raw_total=raw_total,
+        within_run_dups=within_run_dups,
+        unique_articles=unique_articles,
+        gate_no_img=gate_no_img,
+        gate_short_desc=gate_short_desc,
+        verified=verified,
+        trending_stats=trending_stats,
+        written=written,
+        cache_before=cache_before,
+        cache_after=cache_after,
+        raw_by_provider=raw_by_provider,
+        dedup_by_provider=dedup_by_provider,
+        quality_by_provider=quality_by_provider,
+        fresh_by_provider=fresh_by_provider,
+        timings=timings,
+    )
 
 
 if __name__ == "__main__":
