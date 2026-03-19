@@ -198,10 +198,22 @@ HINDI_STOPWORDS = frozenset({
     "और", "या", "पर", "लेकिन", "तो", "भी", "ही", "सिर्फ", "बस",
     "न्यूज़", "खबर", "समाचार", "रिपोर्ट", "दावा", "कहा", "बोला",
     "मिली", "मिला", "हुआ", "हुई", "कर", "किया", "किए", "गया", "गई",
-    "दिया", "दी", "लिया", "ली", "पड़ा", "पड़ी",
+    "दिया", "दी", "लिया", "ली", "पड़ा", "पड़ी", "ने", "ना",
     "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of",
     "is", "are", "was", "were", "news", "report", "says",
+    # Filler words common in Hindi headlines
+    "बड़ा", "बड़ी", "बड़े", "नया", "नई", "नए", "अब", "सब", "कुछ",
+    "जानें", "जानिए", "देखें", "पढ़ें", "सामने", "आया", "आई", "आए",
+    "वाला", "वाली", "वाले", "रहा", "रही", "रहे", "सकता", "सकती", "सकते",
+    "बाद", "पहले", "बीच", "साथ", "ऊपर", "नीचे", "अंदर", "बाहर",
+    "यहां", "वहां", "कहां", "कहाँ", "कौन", "किस", "किसी", "अपने", "अपनी",
+    "एक", "दो", "तीन", "चार", "पांच", "इन", "उन", "जिस", "जिन",
+    "करने", "होने", "लेने", "देने", "आने", "जाने",
+    "latest", "breaking", "update", "updates", "live", "today", "video",
 })
+
+TRENDING_SIMILARITY_THRESHOLD = 0.30
+TRENDING_MIN_WORDS = 3
 
 # Quality gate (plan 26.4)
 MIN_DESC_LEN = 250
@@ -304,6 +316,22 @@ def short_category(slug: str) -> str:
     return CATEGORY_SHORT.get(slug, "nat")
 
 
+_HINDI_SUFFIXES = sorted([
+    "ों", "ें", "ां", "ाँ",
+    "ियों", "ियां", "ियाँ",
+    "ाओं", "ाएं", "ाएँ",
+    "ी", "ा", "े",
+], key=len, reverse=True)
+
+
+def _hindi_stem(word: str) -> str:
+    """Lightweight Hindi suffix stripping. Keeps root ≥ 2 chars."""
+    for suffix in _HINDI_SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 2:
+            return word[:-len(suffix)]
+    return word
+
+
 def normalize_title(title: str) -> str:
     """Normalize title for dedup and trending clustering (plan 26.2)."""
     if not title or not title.strip():
@@ -313,6 +341,15 @@ def normalize_title(title: str) -> str:
     words = t.split()
     words = [w for w in words if w not in HINDI_STOPWORDS and len(w) > 1]
     return " ".join(words)
+
+
+def _stem_title_words(title: str) -> frozenset[str]:
+    """Normalize + stem title words for trending similarity comparison."""
+    norm = normalize_title(title)
+    if not norm:
+        return frozenset()
+    words = norm.split()
+    return frozenset(_hindi_stem(w) for w in words if len(w) > 1)
 
 
 def normalize_source(raw: str) -> str:
@@ -949,39 +986,84 @@ def best_article(articles: list[dict]) -> dict:
     ))
 
 
+def _jaccard_similarity(a: frozenset[str], b: frozenset[str]) -> float:
+    if not a or not b:
+        return 0.0
+    intersection = len(a & b)
+    union = len(a | b)
+    return intersection / union if union else 0.0
+
+
+def _find_best_cluster(word_set: frozenset[str],
+                       cluster_keys: list[frozenset[str]],
+                       threshold: float) -> int:
+    """Return index of best matching cluster, or -1 if none above threshold."""
+    best_idx, best_sim = -1, 0.0
+    for i, ck in enumerate(cluster_keys):
+        sim = _jaccard_similarity(word_set, ck)
+        if sim > best_sim:
+            best_sim = sim
+            best_idx = i
+    return best_idx if best_sim >= threshold else -1
+
+
 def compute_trending(articles: list[dict]) -> tuple[list[dict], dict]:
     """
-    Mark trending articles with "tr": 1 (plan 26.7).
-    24h filter, cluster by normalized title, freq >= 2 distinct sources.
+    Mark trending articles with "tr": 1.
+    Uses Jaccard similarity on title word sets for clustering instead of
+    exact match, since Hindi sources use different wording for the same story.
+    Requires freq >= 2 distinct sources within 24h window.
     Returns (articles, stats_dict).
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     recent = [a for a in articles if (a.get("publishedAt") or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff]
     recent = [a for a in recent if a.get("category") in TOP_TRENDING_CATEGORIES]
 
-    clusters: dict[str, list[dict]] = {}
+    cluster_keys: list[frozenset[str]] = []
+    cluster_articles: list[list[dict]] = []
+
     for a in recent:
-        key = normalize_title(a.get("title", ""))
-        if not key:
+        ws = _stem_title_words(a.get("title", ""))
+        if len(ws) < TRENDING_MIN_WORDS:
             continue
-        clusters.setdefault(key, []).append(a)
+
+        idx = _find_best_cluster(ws, cluster_keys, TRENDING_SIMILARITY_THRESHOLD)
+        if idx >= 0:
+            cluster_articles[idx].append(a)
+            cluster_keys[idx] = cluster_keys[idx] | ws
+        else:
+            cluster_keys.append(ws)
+            cluster_articles.append([a])
 
     qualified = 0
     trending_ids = set()
-    for key, group in clusters.items():
+    near_misses = []
+    for i, group in enumerate(cluster_articles):
         sources = {a.get("sourceName", "") for a in group}
         if len(sources) >= 2:
             qualified += 1
             best = best_article(group)
             trending_ids.add(best["id"])
+            if qualified <= 5:
+                sample_titles = [a.get("title", "")[:60] for a in group[:3]]
+                print(f"  [trending] cluster {qualified}: {len(sources)} sources, "
+                      f"{len(group)} articles — {sample_titles}")
+        elif len(group) >= 2:
+            near_misses.append((len(group), list(sources), group[0].get("title", "")[:60]))
 
     for a in articles:
         if a["id"] in trending_ids:
             a["tr"] = 1
 
+    if near_misses and qualified == 0:
+        near_misses.sort(key=lambda x: x[0], reverse=True)
+        print(f"  [trending] near-misses (same source, multi-article):")
+        for count, srcs, title in near_misses[:5]:
+            print(f"    {count} articles, sources={srcs} — {title}")
+
     stats = {
         "marked": len(trending_ids),
-        "clusters_total": len(clusters),
+        "clusters_total": len(cluster_articles),
         "clusters_qualified": qualified,
     }
     print(f"Trending: {stats['marked']} articles marked | "

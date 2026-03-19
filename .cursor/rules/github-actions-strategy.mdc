@@ -60,8 +60,8 @@ International/world/defense categories removed — Indian RSS feeds cover all re
 ### Quality Gate
 MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.
 
-### Trending (plan 26)
-24h filter, cluster by normalize_title, freq≥2 distinct sources. Add `tr`:1 for trending articles only.
+### Trending
+24h filter, Jaccard similarity clustering on stemmed Hindi title words (threshold 0.30), freq≥2 distinct sources. Lightweight Hindi stemmer strips common suffixes (ों, ें, ी, ा, े, etc.) so inflected forms match. `TRENDING_MIN_WORDS=3` filters short titles. Near-miss clusters logged when 0 qualify. Add `tr`:1 for trending articles only.
 
 ## RSS Feed List (29 feeds — Hindi, 12 sources)
 
