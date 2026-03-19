@@ -37,11 +37,12 @@ GitHub Actions (every 30 min) → Firebase Firestore (article_bundles) → news 
 | Purpose | Path |
 |---------|------|
 | Public API | `news/…/api/NewsRepository.kt` |
-| Domain models | `news/…/api/model/NewsArticle.kt`, `Category.kt` |
+| Domain models | `news/…/api/model/NewsArticle.kt`, `Category.kt`, `SyncTrigger.kt`, `SyncResult.kt` |
 | Room DB | `news/…/internal/local/NewsDatabase.kt` |
 | Local categories | `news/…/internal/local/LocalCategories.kt` |
 | Firebase fetch | `news/…/internal/remote/FirebaseNewsSource.kt` |
 | Sync logic | `news/…/internal/sync/SyncManager.kt` |
+| Fetch quota | `news/…/internal/sync/FetchQuotaManager.kt` |
 | DI wiring | `news/…/di/NewsModule.kt` |
 | ViewModel | `app/…/viewmodel/NewsViewModel.kt` |
 | Home screen | `app/…/ui/screens/HomeScreen.kt` |

@@ -13,6 +13,8 @@ import avinash.app.news.internal.local.dao.BookmarkDao
 import avinash.app.news.internal.local.dao.CategoryDao
 import avinash.app.news.internal.local.mapper.toBookmarkEntity
 import avinash.app.news.internal.local.mapper.toDomain
+import avinash.app.news.api.model.SyncResult
+import avinash.app.news.api.model.SyncTrigger
 import avinash.app.news.internal.remote.RemoteConfigManager
 import avinash.app.news.internal.sync.SyncManager
 import kotlinx.coroutines.flow.Flow
@@ -78,7 +80,8 @@ class NewsRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun refreshNews(): Result<Unit> = syncManager.syncNews()
+    override suspend fun refreshNews(trigger: SyncTrigger): Result<SyncResult> =
+        syncManager.syncNews(trigger)
 
     override suspend fun refreshCategories(): Result<Unit> = Result.success(Unit)
 

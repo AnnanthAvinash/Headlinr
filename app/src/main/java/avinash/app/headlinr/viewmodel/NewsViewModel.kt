@@ -16,6 +16,7 @@ import avinash.app.news.api.NewsRepository
 import avinash.app.news.api.model.Category
 import avinash.app.news.api.model.NewsArticle
 import avinash.app.news.api.model.SourceEntry
+import avinash.app.news.api.model.SyncTrigger
 import avinash.app.news.internal.remote.RemoteConfigManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -127,7 +128,7 @@ class NewsViewModel @Inject constructor(
         viewModelScope.launch {
             while (true) {
                 delay(AUTO_REFRESH_INTERVAL_MS)
-                newsRepository.refreshNews()
+                newsRepository.refreshNews(SyncTrigger.APP_OPEN)
                 loadTrendingArticles()
             }
         }
@@ -146,7 +147,7 @@ class NewsViewModel @Inject constructor(
             _isRefreshing.value = true
             remoteConfig.fetchAndActivate()
             newsRepository.refreshCategories()
-            newsRepository.refreshNews().onFailure { e ->
+            newsRepository.refreshNews(SyncTrigger.APP_OPEN).onFailure { e ->
                 _errorMessage.value = e.message ?: "Sync failed"
             }
             loadTrendingArticles()
@@ -185,7 +186,7 @@ class NewsViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             _errorMessage.value = null
-            newsRepository.refreshNews().onFailure { e ->
+            newsRepository.refreshNews(SyncTrigger.PULL_TO_REFRESH).onFailure { e ->
                 _errorMessage.value = e.message ?: "Refresh failed"
             }
             loadTrendingArticles()
