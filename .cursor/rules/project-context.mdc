@@ -22,7 +22,7 @@ GitHub Actions (every 30 min) → Firebase Firestore (article_bundles) → news 
 - **`news/`** — Data-only library module. Exposes `NewsRepository`, `NewsArticle`, `Category`. No UI, no ViewModel, no Compose.
 - **`app/`** — Host app. Owns all screens, ViewModels, navigation, and AdMob. Depends on `:news`.
 - Room is the **single source of truth**. All UI reads from Room, never Firestore directly.
-- Sync happens only on app open — **no WorkManager**.
+- Sync triggers: `APP_OPEN` (launch/foreground) and `PULL_TO_REFRESH` (swipe) — **no WorkManager, no auto-refresh timer**.
 
 ## Module Boundaries (strict)
 
@@ -70,6 +70,7 @@ GitHub Actions (every 30 min) → Firebase Firestore (article_bundles) → news 
 - Category expansion in `NewsRepositoryImpl`: nat→(nat,pol,cri), bus→(bus,stk), tec→(tec,sci)
 - International/world/defense categories removed — Indian RSS feeds cover all relevant news under `nat`
 - Firebase articles stored as bundles of ≤50 per document (`article_bundles` collection, short field names).
+- Firebase sync governed by `FetchQuotaManager` — time-bucketed IST limits (50/day, 1,300/month rollover), 30s cooldown. See `firebase-read-strategy.mdc` for full parameters.
 - Zero cost — everything must stay within free tier limits (Firebase Spark, GitHub Actions 2000 min/month, API free tiers).
 
 ## GitHub Actions

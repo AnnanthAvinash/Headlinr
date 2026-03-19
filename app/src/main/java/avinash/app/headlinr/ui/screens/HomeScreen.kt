@@ -31,10 +31,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -75,6 +80,16 @@ fun HomeScreen(
     val activeSource by viewModel.activeSource.collectAsState()
     val availableSources by viewModel.availableSources.collectAsState()
     val articles = viewModel.articles.collectAsLazyPagingItems()
+    val snackbarMessage by viewModel.snackbarMessage.collectAsState()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(snackbarMessage) {
+        snackbarMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearSnackbar()
+        }
+    }
 
     val adPositions = remember(articles.itemCount) {
         if (articles.itemCount < 5) emptySet()
@@ -88,147 +103,162 @@ fun HomeScreen(
         }
     }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = { viewModel.refresh() },
-        modifier = Modifier.fillMaxSize()
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 16.dp)
+    Scaffold(
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface
+                )
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { innerPadding ->
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { viewModel.refresh() },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
-           // item { TopBar() }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                // item { TopBar() }
 
-            if (availableSources.isNotEmpty()) {
-                item {
-                    SourceFilterRow(
-                        sources = availableSources,
-                        activeSource = activeSource,
-                        onSourceClick = { entry ->
-                            viewModel.selectSource(if (activeSource == entry.name) null else entry.name)
+                if (availableSources.isNotEmpty()) {
+                    item {
+                        SourceFilterRow(
+                            sources = availableSources,
+                            activeSource = activeSource,
+                            onSourceClick = { entry ->
+                                viewModel.selectSource(if (activeSource == entry.name) null else entry.name)
+                            }
+                        )
+                    }
+                }
+
+                if (trendingArticles.isNotEmpty()) {
+                    item {
+                        SectionHeader(title = "Today Trending", onSeeMore = { })
+                    }
+
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            itemsIndexed(trendingArticles, key = { _, it -> it.id }) { index, article ->
+                                TrendingCard(
+                                    article = article,
+                                    onClick = {
+                                        if (article.description.length < 200 && article.articleUrl.isNotBlank()) {
+                                            onDirectRead(article.articleUrl, article.id)
+                                        } else {
+                                            onArticleClick(article.id)
+                                        }
+                                    },
+                                    trendingIndex = index
+                                )
+                            }
                         }
-                    )
-                }
-            }
+                    }
 
-            if (trendingArticles.isNotEmpty()) {
-                item {
-                    SectionHeader(title = "Today Trending", onSeeMore = { })
+                    item { Spacer(modifier = Modifier.height(20.dp)) }
                 }
 
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        itemsIndexed(trendingArticles, key = { _, it -> it.id }) { index, article ->
-                            TrendingCard(
-                                article = article,
-                                onClick = {
-                                    if (article.description.length < 200 && article.articleUrl.isNotBlank()) {
-                                        onDirectRead(article.articleUrl, article.id)
-                                    } else {
-                                        onArticleClick(article.id)
+                if (userCategories.isNotEmpty()) {
+                    item {
+                        SectionHeader(title = "Explore", onSeeMore = { })
+                    }
+
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            items(userCategories, key = { it.slug }) { category ->
+                                ExploreCategoryBubble(
+                                    category = category,
+                                    isSelected = activeCategory == category.slug,
+                                    onClick = {
+                                        viewModel.selectCategory(
+                                            if (activeCategory == category.slug) null else category.slug
+                                        )
                                     }
-                                },
-                                trendingIndex = index
-                            )
-                        }
-                    }
-                }
-
-                item { Spacer(modifier = Modifier.height(20.dp)) }
-            }
-
-            if (userCategories.isNotEmpty()) {
-                item {
-                    SectionHeader(title = "Explore", onSeeMore = { })
-                }
-
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(userCategories, key = { it.slug }) { category ->
-                            ExploreCategoryBubble(
-                                category = category,
-                                isSelected = activeCategory == category.slug,
-                                onClick = {
-                                    viewModel.selectCategory(
-                                        if (activeCategory == category.slug) null else category.slug
-                                    )
-                                }
-                            )
-                        }
-                    }
-                }
-
-                item { Spacer(modifier = Modifier.height(16.dp)) }
-            }
-
-            when {
-                articles.loadState.refresh is LoadState.Loading && articles.itemCount == 0 -> {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(200.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-
-                articles.itemCount == 0 && !isRefreshing -> {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(200.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "No articles yet.\nPull to refresh.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                else -> {
-                    items(
-                        count = articles.itemCount,
-                        key = { index -> articles[index]?.id ?: index }
-                    ) { index ->
-                        if (index in adPositions) {
-                            InFeedAd()
-                        }
-                        articles[index]?.let { article ->
-                            ArticleCard(
-                                article = article,
-                                isBookmarked = article.id in bookmarkedIds,
-                                onClick = { onArticleClick(article.id) },
-                                onBookmarkClick = { viewModel.toggleBookmark(article.id) },
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
-                            )
+                                )
+                            }
                         }
                     }
 
-                    if (articles.loadState.append is LoadState.Loading) {
+                    item { Spacer(modifier = Modifier.height(16.dp)) }
+                }
+
+                when {
+                    articles.loadState.refresh is LoadState.Loading && articles.itemCount == 0 -> {
                         item {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(16.dp),
+                                    .height(200.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    color = MaterialTheme.colorScheme.primary
+                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+
+                    articles.itemCount == 0 && !isRefreshing -> {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No articles yet.\nPull to refresh.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                        }
+                    }
+
+                    else -> {
+                        items(
+                            count = articles.itemCount,
+                            key = { index -> articles[index]?.id ?: index }
+                        ) { index ->
+                            if (index in adPositions) {
+                                InFeedAd()
+                            }
+                            articles[index]?.let { article ->
+                                ArticleCard(
+                                    article = article,
+                                    isBookmarked = article.id in bookmarkedIds,
+                                    onClick = { onArticleClick(article.id) },
+                                    onBookmarkClick = { viewModel.toggleBookmark(article.id) },
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+
+                        if (articles.loadState.append is LoadState.Loading) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }
