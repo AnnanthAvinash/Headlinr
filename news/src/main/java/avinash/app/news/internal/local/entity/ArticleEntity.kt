@@ -10,6 +10,7 @@ import androidx.room.PrimaryKey
         Index(value = ["category", "publishedAt"]),
         Index(value = ["publishedAt"]),
         Index(value = ["articleUrl"], unique = true),
+        Index(value = ["trending", "publishedAt"]),
     ]
 )
 data class ArticleEntity(
@@ -21,5 +22,6 @@ data class ArticleEntity(
     val publishedAt: Long,
     val sourceName: String,
     val category: String,
+    val trending: Boolean = false,
     val cachedAt: Long
 )
