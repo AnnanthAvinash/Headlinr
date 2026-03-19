@@ -65,7 +65,7 @@ API source categories normalized then mapped: pol/cri/int/def→nat, stk→bus, 
 RSS feeds use short codes directly in their `category` field.
 
 ### Quality Gate
-MIN_TITLE_LEN=15, MIN_DESC_LEN=100; spt/ent/nat can pass with MIN_DESC_TRENDING=30.
+MIN_TITLE_LEN=100, MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.
 
 ### Trending (plan 26)
 24h filter, cluster by normalize_title, freq≥2 distinct sources. Add `tr`:1 for trending articles only.

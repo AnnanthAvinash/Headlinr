@@ -43,7 +43,7 @@ FIRESTORE_ARTICLES = "article_bundles"
 REQUEST_TIMEOUT = 15
 IMAGE_MIN_WIDTH = 600
 IMAGE_CHECK_SAMPLE = 5
-DESC_MAX_LEN = 450
+DESC_MAX_LEN = 500
 
 # ---------------------------------------------------------------------------
 # RSS Feed Configuration — 19 verified Hindi feeds (plan 25.2)
@@ -201,9 +201,8 @@ HINDI_STOPWORDS = frozenset({
 })
 
 # Quality gate (plan 26.4)
-MIN_TITLE_LEN = 15
-MIN_DESC_LEN = 100
-MIN_DESC_TRENDING = 30
+MIN_TITLE_LEN = 100
+MIN_DESC_LEN = 250
 TOP_TRENDING_CATEGORIES = {"spt", "ent", "nat"}
 
 # ---------------------------------------------------------------------------
@@ -398,7 +397,7 @@ def fetch_currentsapi_latest() -> list[dict]:
         articles.append({
             "id": article_id,
             "title": title,
-            "description": clean_html(item.get("description") or "")[:500],
+            "description": clean_html(item.get("description") or "")[:DESC_MAX_LEN],
             "imageUrl": item.get("image") or None,
             "articleUrl": item.get("url") or "",
             "publishedAt": published,
@@ -449,7 +448,7 @@ def fetch_newsdata_category(category: str) -> list[dict]:
         articles.append({
             "id": article_id,
             "title": title,
-            "description": clean_html(item.get("description") or "")[:500],
+            "description": clean_html(item.get("description") or "")[:DESC_MAX_LEN],
             "imageUrl": item.get("image_url") or None,
             "articleUrl": item.get("link") or "",
             "publishedAt": published,
@@ -507,7 +506,7 @@ def fetch_contextualweb_query(query: str, target_category: str) -> list[dict]:
         articles.append({
             "id": article_id,
             "title": title,
-            "description": clean_html(item.get("description") or "")[:500],
+            "description": clean_html(item.get("description") or "")[:DESC_MAX_LEN],
             "imageUrl": image_url,
             "articleUrl": item.get("url") or "",
             "publishedAt": published,
@@ -806,7 +805,7 @@ def fetch_single_rss_feed(feed_config: dict, seen_urls: set[str]) -> tuple[list[
             val = c.get("value", "")
             if len(val) > len(raw_desc):
                 raw_desc = val
-        description = clean_html(raw_desc)[:500]
+        description = clean_html(raw_desc)[:DESC_MAX_LEN]
 
         if is_good_description(raw_desc):
             good_descriptions += 1
@@ -1169,12 +1168,11 @@ def main():
     print(f"\nTotal unique articles this run: {len(unique_articles)}")
 
     # --- Quality gate (plan 26.4) ---
-    # MIN_TITLE_LEN=15, MIN_DESC_LEN=100; spt/ent/nat can pass with MIN_DESC_TRENDING=30
+    # MIN_TITLE_LEN=100, MIN_DESC_LEN=250; description truncated to max 500 chars
     verified = []
     gate_no_img = 0
     gate_short_title = 0
     gate_short_desc = 0
-    gate_trending_saved = 0
     for a in unique_articles:
         img = a.get("imageUrl") or ""
         if not _is_valid_image_url(img):
@@ -1186,18 +1184,13 @@ def main():
             continue
         desc_len = len((a.get("description") or "").strip())
         if desc_len < MIN_DESC_LEN:
-            if a.get("category") in TOP_TRENDING_CATEGORIES and desc_len >= MIN_DESC_TRENDING:
-                gate_trending_saved += 1
-                verified.append(a)
-            else:
-                gate_short_desc += 1
-        else:
-            verified.append(a)
+            gate_short_desc += 1
+            continue
+        verified.append(a)
     print(f"Quality gate: {len(verified)} passed | "
           f"{gate_no_img} dropped (bad image) | "
           f"{gate_short_title} dropped (title < {MIN_TITLE_LEN}) | "
-          f"{gate_short_desc} dropped (desc < {MIN_DESC_LEN}) | "
-          f"{gate_trending_saved} trending-saved (spt/ent/nat, desc {MIN_DESC_TRENDING}-{MIN_DESC_LEN - 1})")
+          f"{gate_short_desc} dropped (desc < {MIN_DESC_LEN})")
 
     # --- Compute trending (plan 26) ---
     verified = compute_trending(verified)
