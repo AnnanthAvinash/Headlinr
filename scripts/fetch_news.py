@@ -1,6 +1,6 @@
 """
 Headlinr — News Fetcher for GitHub Actions
-Fetches from 19 Hindi RSS feeds, normalizes, deduplicates,
+Fetches from 34 Hindi RSS feeds, normalizes, deduplicates,
 bundles up to 50 articles per Firestore document, and uploads to Firebase.
 
 Single-tier schedule: every 30 min, RSS feeds only.
@@ -45,37 +45,52 @@ IMAGE_CHECK_SAMPLE = 5
 DESC_MAX_LEN = 500
 
 # ---------------------------------------------------------------------------
-# RSS Feed Configuration — 19 verified Hindi feeds (plan 25.2)
+# RSS Feed Configuration — 34 verified Hindi feeds (HLNAPP-39)
 # Category values are short codes; pol/cri map to nat, stk to bus
 # ---------------------------------------------------------------------------
 
 RSS_FEEDS = [
-    # National (nat) — covers all India news including politics, crime
+    # ── National (nat) ─────────────────────────────────────────────────────
     {"url": "https://www.aajtak.in/rssfeeds/?id=home", "category": "nat", "source": "Aaj Tak"},
     {"url": "https://www.abplive.com/news/india/feed", "category": "nat", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/india/feed", "category": "nat", "source": "TV9 Hindi"},
     {"url": "https://hindi.business-standard.com/rss/politics.xml", "category": "nat", "source": "Business Standard Hindi"},
     {"url": "https://www.navjivanindia.com/stories.rss?section=politics", "category": "nat", "source": "Navjivan India"},
     {"url": "https://www.abplive.com/news/crime/feed", "category": "nat", "source": "ABP Live"},
-    # Sports (spt)
+    {"url": "https://hindi.oneindia.com/rss/feeds/hindi-india-fb.xml", "category": "nat", "source": "OneIndia Hindi"},
+    {"url": "https://hindi.oneindia.com/rss/feeds/hindi-trending-fb.xml", "category": "nat", "source": "OneIndia Hindi"},
+    {"url": "https://feeds.bbci.co.uk/hindi/rss.xml", "category": "nat", "source": "BBC Hindi"},
+    {"url": "https://www.jansatta.com/national/feed/", "category": "nat", "source": "Jansatta"},
+    {"url": "https://www.prabhatkhabar.com/national/feed", "category": "nat", "source": "Prabhat Khabar"},
+    {"url": "https://zeenews.india.com/rss/india-national-news.xml", "category": "nat", "source": "Zee News"},
+    # ── Sports (spt) ──────────────────────────────────────────────────────
     {"url": "https://www.tv9hindi.com/sports/feed", "category": "spt", "source": "TV9 Hindi"},
     {"url": "https://www.indiatv.in/rssnews/topstory-sports.xml", "category": "spt", "source": "India TV"},
-    # Entertainment — 4 Bollywood-only (ent)
+    {"url": "https://www.jansatta.com/khel/feed/", "category": "spt", "source": "Jansatta"},
+    {"url": "https://www.prabhatkhabar.com/sports/feed", "category": "spt", "source": "Prabhat Khabar"},
+    # ── Entertainment (ent) ───────────────────────────────────────────────
     {"url": "https://www.abplive.com/entertainment/bollywood/feed", "category": "ent", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/entertainment/feed", "category": "ent", "source": "TV9 Hindi"},
     {"url": "https://www.indiatv.in/rssnews/topstory-entertainment.xml", "category": "ent", "source": "India TV"},
     {"url": "https://www.bollywoodhungama.com/rss/news.xml", "category": "ent", "source": "Bollywood Hungama"},
-    # Business (bus) — stk merged to bus
+    {"url": "https://hindi.oneindia.com/rss/feeds/hindi-entertainment-fb.xml", "category": "ent", "source": "OneIndia Hindi"},
+    {"url": "https://www.jansatta.com/entertainment/feed/", "category": "ent", "source": "Jansatta"},
+    # ── Business (bus) ────────────────────────────────────────────────────
     {"url": "https://www.abplive.com/business/feed", "category": "bus", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/business/feed", "category": "bus", "source": "TV9 Hindi"},
     {"url": "https://hindi.business-standard.com/rss/markets/share-market.xml", "category": "bus", "source": "Business Standard Hindi"},
-    # Technology (tec)
+    {"url": "https://hindi.oneindia.com/rss/feeds/hindi-business-fb.xml", "category": "bus", "source": "OneIndia Hindi"},
+    {"url": "https://hindi.etnownews.com/feeds/gns-etn-hindi-markets.xml", "category": "bus", "source": "ET Now Swadesh"},
+    # ── Technology (tec) ──────────────────────────────────────────────────
     {"url": "https://www.abplive.com/technology/feed", "category": "tec", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/technology/feed", "category": "tec", "source": "TV9 Hindi"},
-    # Health (hlt)
+    {"url": "https://www.jansatta.com/technology-news/feed/", "category": "tec", "source": "Jansatta"},
+    # ── Health (hlt) ──────────────────────────────────────────────────────
     {"url": "https://www.abplive.com/health/feed", "category": "hlt", "source": "ABP Live"},
-    # Education (edu)
+    {"url": "https://www.jansatta.com/health-news-hindi/feed/", "category": "hlt", "source": "Jansatta"},
+    # ── Education (edu) ───────────────────────────────────────────────────
     {"url": "https://www.abplive.com/education/feed", "category": "edu", "source": "ABP Live"},
+    {"url": "https://hindi.etnownews.com/feeds/gns-etn-hindi-education.xml", "category": "edu", "source": "ET Now Swadesh"},
 ]
 
 # User-Agent for RSS requests (Bollywood Hungama may block default)
@@ -231,7 +246,17 @@ SOURCE_NORMALIZE = {
     "indianexpress.com": "Indian Express",
     "dnaindia.com": "DNA India",
     "zeenews.india.com": "Zee News",
+    "www.zeenews.india.com": "Zee News",
     "aajtak.in": "Aaj Tak",
+    "hindi.oneindia.com": "OneIndia Hindi",
+    "oneindia.com": "OneIndia Hindi",
+    "jansatta.com": "Jansatta",
+    "www.jansatta.com": "Jansatta",
+    "prabhatkhabar.com": "Prabhat Khabar",
+    "www.prabhatkhabar.com": "Prabhat Khabar",
+    "hindi.etnownews.com": "ET Now Swadesh",
+    "feeds.bbci.co.uk": "BBC Hindi",
+    "bbc.com/hindi": "BBC Hindi",
     # International sources
     "bbc": "BBC",
     "bbc news": "BBC",
@@ -905,6 +930,8 @@ def save_cache(ids: set[str]):
 SOURCE_QUALITY = {
     "Times of India": 1, "NDTV": 1, "Reuters": 1, "BBC": 1, "The Hindu": 1,
     "ABP Live": 1, "TV9 Hindi": 1, "India TV": 1, "Aaj Tak": 1,
+    "BBC Hindi": 1, "Jansatta": 1, "Zee News": 1, "OneIndia Hindi": 1,
+    "Prabhat Khabar": 1, "ET Now Swadesh": 1,
 }
 
 
