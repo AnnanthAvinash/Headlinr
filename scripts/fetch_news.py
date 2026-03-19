@@ -962,6 +962,10 @@ def compute_trending(articles: list[dict]) -> list[dict]:
     for a in articles:
         if a["id"] in trending_ids:
             a["tr"] = 1
+
+    print(f"Trending: {len(trending_ids)} articles marked | "
+          f"{len(recent)} recent in {len(clusters)} clusters | "
+          f"{sum(1 for g in clusters.values() if len({a.get('sourceName','') for a in g}) >= 2)} clusters qualified")
     return articles
 
 
