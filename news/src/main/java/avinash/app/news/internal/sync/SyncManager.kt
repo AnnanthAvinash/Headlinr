@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import avinash.app.news.internal.local.LocalCategories
@@ -28,6 +29,7 @@ class SyncManager @Inject constructor(
 ) {
     companion object {
         private val KEY_LAST_SYNC = longPreferencesKey("last_sync_timestamp")
+        private val KEY_CATEGORY_VERSION = intPreferencesKey("category_version")
 
         private const val MIN_SYNC_INTERVAL_MS = 10 * 60 * 1000L // 10 minutes
         private const val STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000L // 24 hours
@@ -71,9 +73,14 @@ class SyncManager @Inject constructor(
     }
 
     private suspend fun seedCategoriesIfNeeded() {
-        if (categoryDao.getCount() == 0) {
+        val prefs = context.syncDataStore.data.first()
+        val storedVersion = prefs[KEY_CATEGORY_VERSION] ?: 0
+
+        if (categoryDao.getCount() == 0 || storedVersion < LocalCategories.VERSION) {
+            categoryDao.deleteAll()
             categoryDao.upsertAll(LocalCategories.ALL)
-            Timber.d("Seeded ${LocalCategories.ALL.size} local categories")
+            context.syncDataStore.edit { it[KEY_CATEGORY_VERSION] = LocalCategories.VERSION }
+            Timber.d("Seeded ${LocalCategories.ALL.size} categories (v${LocalCategories.VERSION})")
         }
     }
 

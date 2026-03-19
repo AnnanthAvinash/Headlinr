@@ -21,11 +21,17 @@ interface ArticleDao {
     @Query("SELECT * FROM articles WHERE category = :category ORDER BY publishedAt DESC")
     fun getArticlesByCategory(category: String): PagingSource<Int, ArticleEntity>
 
+    @Query("SELECT * FROM articles WHERE category IN (:categories) ORDER BY publishedAt DESC")
+    fun getArticlesByCategories(categories: List<String>): PagingSource<Int, ArticleEntity>
+
     @Query("SELECT * FROM articles WHERE sourceName = :source ORDER BY publishedAt DESC")
     fun getArticlesBySource(source: String): PagingSource<Int, ArticleEntity>
 
     @Query("SELECT * FROM articles WHERE category = :category AND sourceName = :source ORDER BY publishedAt DESC")
     fun getArticlesByCategoryAndSource(category: String, source: String): PagingSource<Int, ArticleEntity>
+
+    @Query("SELECT * FROM articles WHERE category IN (:categories) AND sourceName = :source ORDER BY publishedAt DESC")
+    fun getArticlesByCategoriesAndSource(categories: List<String>, source: String): PagingSource<Int, ArticleEntity>
 
     @Query("SELECT MAX(publishedAt) FROM articles")
     suspend fun getNewestTimestamp(): Long?

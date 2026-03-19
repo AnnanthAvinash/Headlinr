@@ -38,7 +38,8 @@ data class BottomNavItem(
 @Composable
 fun MainScreen(
     viewModel: NewsViewModel,
-    onArticleClick: (articleId: String) -> Unit
+    onArticleClick: (articleId: String) -> Unit,
+    onDirectRead: (url: String, articleId: String) -> Unit = { _, _ -> }
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -100,7 +101,8 @@ fun MainScreen(
             composable("home") {
                 HomeScreen(
                     viewModel = viewModel,
-                    onArticleClick = onArticleClick
+                    onArticleClick = onArticleClick,
+                    onDirectRead = onDirectRead
                 )
             }
             composable("search") {

@@ -1478,3 +1478,295 @@ DO NOT ADD ANY DELETION CALLS UNTIL THIS TASK IS FULLY DESIGNED AND APPROVED.
 | **10** | Demo app — AdMob integration | `app` | `NativeAdCard.kt`, `BannerAdView.kt`, `AdManager.kt` |
 | **11** | Demo app — wiring, navigation, offline states | `app` | `MainActivity.kt` |
 | **12** | GitHub Actions — two-tier workflow with normalization + dedup + RSS feeds + quality metrics | repo root | `.github/workflows/fetch-news.yml`, `scripts/fetch_news.py`, `scripts/requirements.txt` |
+
+---
+
+## 25. RSS URLs, Merged Categories & Final Update Plan
+
+### 25.1 Merged Categories (13 → 7)
+
+| New ID | Hindi Name | English | Merged From |
+|--------|------------|---------|-------------|
+| **nat** | दुनिया | Global | nat, pol, cri, int, def |
+| **spt** | खेल | Sports | spt |
+| **ent** | मनोरंजन | Entertainment | ent |
+| **bus** | व्यापार | Business | bus, stk |
+| **tec** | तकनीक | Technology | tec, sci |
+| **hlt** | स्वास्थ्य | Health | hlt |
+| **edu** | शिक्षा | Education | edu |
+
+### 25.2 Final RSS URLs (19 feeds)
+
+| Category | # | Source | URL |
+|----------|---|--------|-----|
+| **Global (nat)** | 1 | Aaj Tak | `https://www.aajtak.in/rssfeeds/?id=home` |
+| | 2 | ABP Live | `https://www.abplive.com/news/india/feed` |
+| | 3 | TV9 Hindi | `https://www.tv9hindi.com/india/feed` |
+| | 4 | Business Standard Hindi | `https://hindi.business-standard.com/rss/politics.xml` |
+| | 5 | Navjivan India | `https://www.navjivanindia.com/stories.rss?section=politics` |
+| | 6 | ABP Live | `https://www.abplive.com/news/crime/feed` |
+| **Sports (spt)** | 7 | TV9 Hindi | `https://www.tv9hindi.com/sports/feed` |
+| | 8 | India TV | `https://www.indiatv.in/rssnews/topstory-sports.xml` |
+| **Entertainment (ent)** | 9 | ABP Live | `https://www.abplive.com/entertainment/feed` |
+| | 10 | TV9 Hindi | `https://www.tv9hindi.com/entertainment/feed` |
+| | 11 | India TV | `https://www.indiatv.in/rssnews/topstory-entertainment.xml` |
+| | 12 | Bollywood Hungama | `https://www.bollywoodhungama.com/rss/news.xml` |
+| **Business (bus)** | 13 | ABP Live | `https://www.abplive.com/business/feed` |
+| | 14 | TV9 Hindi | `https://www.tv9hindi.com/business/feed` |
+| | 15 | Business Standard Hindi | `https://hindi.business-standard.com/rss/markets/share-market.xml` |
+| **Technology (tec)** | 16 | ABP Live | `https://www.abplive.com/technology/feed` |
+| | 17 | TV9 Hindi | `https://www.tv9hindi.com/technology/feed` |
+| **Health (hlt)** | 18 | ABP Live | `https://www.abplive.com/health/feed` |
+| **Education (edu)** | 19 | ABP Live | `https://www.abplive.com/education/feed` |
+
+### 25.3 Files to Change
+
+| File | Changes |
+|------|---------|
+| `scripts/fetch_news.py` | Replace RSS_FEEDS with 19 feeds; map pol/cri→nat, stk→bus; add User-Agent for Bollywood Hungama; TOP_TRENDING_CATEGORIES: `{"spt","ent","nat"}`; add normalize_title, HINDI_STOPWORDS, quality gate (min title/desc), trending algorithm (26) |
+| `news/.../LocalCategories.kt` | Reduce to 7 categories: nat, spt, ent, bus, tec, hlt, edu |
+| `news/.../ArticleDao.kt` | Add `getArticlesByCategories(categories: List<String>)`; update `getTrendingArticles` to use `('spt','ent','nat')` |
+| `news/.../NewsRepositoryImpl.kt` | Category expansion: nat→(nat,pol,cri,int,def), bus→(bus,stk), tec→(tec,sci) |
+| `app/.../CategoryIcons.kt` | Update categoryNameMap to 7 slugs only |
+| `news/.../CategoryDao.kt` | Update seed to match LocalCategories |
+| `.cursor/rules/github-actions-strategy.mdc` | Update RSS feed table, category codes |
+| `.cursor/rules/project-context.mdc` | Update category short codes |
+
+### 25.4 Category Expansion (Repository)
+
+When user selects a merged category, query multiple DB categories:
+
+| UI Slug | DB Categories Queried |
+|---------|------------------------|
+| nat | nat, pol, cri, int, def |
+| bus | bus, stk |
+| tec | tec, sci |
+| spt, ent, hlt, edu | single category |
+
+### 25.5 User Preference Migration
+
+| Old Slug | New Slug |
+|----------|----------|
+| pol, cri, int, def | nat |
+| stk | bus |
+| sci | tec |
+
+On app load: if stored `selected_categories` contains old slugs, map to new before use.
+
+### 25.6 Implementation Order
+
+1. Update `LocalCategories.kt` (7 categories)
+2. Add `getArticlesByCategories()` in `ArticleDao.kt`
+3. Update `NewsRepositoryImpl.kt` with category expansion
+4. Update `CategoryIcons.kt` and `categoryNameMap`
+5. Update `CategoryDao` seed (if applicable)
+6. Update `fetch_news.py` (RSS_FEEDS, TOP_TRENDING_CATEGORIES, User-Agent)
+7. Update `ArticleDao.getTrendingArticles` to use nat
+8. Add user-pref migration for merged slugs
+9. Update `.cursor/rules/github-actions-strategy.mdc` and `project-context.mdc`
+10. Implement trending algorithm (26): normalize_title, quality gate, time decay, trending detection
+
+### 25.7 Summary
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Categories | 13 | 7 |
+| RSS feeds | 25 (4 dead) | 19 (all working) |
+| Entertainment | 8 (incl. South) | 4 (Bollywood only) |
+| Trending | spt, ent, pol | spt, ent, nat |
+
+---
+
+## 26. Trending Algorithm & Article Quality
+
+### 26.1 Pipeline Order
+
+```
+Fetch (currentsapi + RSS + newsdata + contextualweb)
+    ↓
+Normalize (category, source, title → normalize_title for ALL)
+    ↓
+Dedup (use normalized title in hash)
+    ↓
+Quality gate (min title len, min desc len, valid image) — ALL articles
+    ↓
+Trending detection (24h window, cluster by normalized title, freq≥2, best article + time decay)
+    ↓
+Add "t": 1 to trending articles only
+    ↓
+Upload to Firebase
+```
+
+### 26.2 Title Normalization (ALL Articles)
+
+Applied to every article during processing — used for dedup, trending clustering, and any future logic.
+
+```python
+def normalize_title(title: str) -> str:
+    if not title or not title.strip():
+        return ""
+    t = title.lower().strip()
+    t = re.sub(r'[^\w\s\u0900-\u097F]', '', t)  # keep Hindi chars, remove punctuation
+    words = t.split()
+    words = [w for w in words if w not in HINDI_STOPWORDS and len(w) > 1]
+    return " ".join(words)
+```
+
+### 26.3 Hindi Stopwords (Primary)
+
+```python
+HINDI_STOPWORDS = frozenset({
+    # Particles
+    "का", "की", "के", "को", "में", "से", "पर", "तक", "द्वारा", "के लिए",
+    "है", "हैं", "था", "थे", "था", "थी", "हो", "होता", "होती", "होते",
+    "यह", "वह", "इस", "उस", "जो", "कि", "क्या", "कैसे", "कब", "कहाँ",
+    "और", "या", "पर", "लेकिन", "तो", "भी", "ही", "सिर्फ", "बस",
+    # Common
+    "न्यूज़", "खबर", "समाचार", "रिपोर्ट", "दावा", "कहा", "बोला",
+    "मिली", "मिला", "हुआ", "हुई", "कर", "किया", "किए", "गया", "गई",
+    "दिया", "दी", "लिया", "ली", "पड़ा", "पड़ी",
+    # English (secondary)
+    "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of",
+    "is", "are", "was", "were", "news", "report", "says",
+})
+```
+
+### 26.4 Article Quality Gate (ALL Articles)
+
+Applies to every article regardless of trending. Min title/description length is part of article quality.
+
+| Check | Value | Notes |
+|-------|-------|-------|
+| MIN_TITLE_LEN | 15 | chars after strip |
+| MIN_DESC_LEN | 100 | regular articles |
+| MIN_DESC_TRENDING | 30 | spt/ent/nat with short desc can still pass for trending |
+| Valid image | required | _is_valid_image_url |
+
+### 26.5 Time Decay (Trending Only)
+
+Higher weight for recent articles when picking best article per cluster.
+
+```python
+def time_decay_score(article: dict) -> float:
+    """Higher for more recent. 1.0 at now, decays over 24h."""
+    pub = article.get("publishedAt")
+    if not pub:
+        return 0.5
+    ts = pub.timestamp() if hasattr(pub, "timestamp") else pub / 1000
+    age_hours = (datetime.now(timezone.utc).timestamp() - ts) / 3600
+    return max(0.1, 2 ** (-age_hours / 6))  # half-life ~6h
+```
+
+### 26.6 Best Article Selection (Trending Cluster)
+
+```python
+def best_article(articles: list[dict]) -> dict:
+    return max(articles, key=lambda a: (
+        SOURCE_QUALITY.get(a.get("sourceName", ""), 0),
+        time_decay_score(a),  # recent = higher
+        len(a.get("description", ""))  # tie-breaker
+    ))
+```
+
+### 26.7 Trending Detection Steps
+
+1. Collect articles from last 24 hours only
+2. Normalize title (lowercase, stopwords, punctuation) — uses shared normalize_title for ALL
+3. Group similar articles by normalized title
+4. For each cluster: frequency = number of distinct sources
+5. Mark trending if frequency ≥ 2
+6. From each trending cluster: keep 1 best article (source quality + time decay)
+7. Add `"t": 1` only for these articles; omit for others to save memory
+
+### 26.8 Scope Summary
+
+| Item | Scope |
+|------|-------|
+| Title normalization | ALL articles |
+| Hindi stopwords | Primary (expand as needed) |
+| Time decay | Trending only (best-article selection) |
+| Min title length | ALL articles (quality gate) |
+| Min description length | ALL articles (quality gate) |
+
+---
+
+## 27. Task Breakdown
+
+### Phase A: RSS & Fetch Pipeline
+
+| ID | Task | File(s) | Depends |
+|----|------|---------|---------|
+| A1 | Replace RSS_FEEDS with 19 feeds; remove dead feeds | `scripts/fetch_news.py` | — |
+| A2 | Add User-Agent for RSS requests (Bollywood Hungama) | `scripts/fetch_news.py` | — |
+| A3 | Map pol/cri→nat, stk→bus in CATEGORY_SHORT | `scripts/fetch_news.py` | — |
+| A4 | Add HINDI_STOPWORDS constant | `scripts/fetch_news.py` | — |
+| A5 | Add normalize_title() and use for ALL articles | `scripts/fetch_news.py` | A4 |
+| A6 | Update make_article_id / dedup to use normalized title | `scripts/fetch_news.py` | A5 |
+| A7 | Add quality gate: MIN_TITLE_LEN=15, MIN_DESC_LEN=100, MIN_DESC_TRENDING=30 | `scripts/fetch_news.py` | — |
+| A8 | Replace verification gate with quality gate (apply to ALL) | `scripts/fetch_news.py` | A7 |
+| A9 | Add time_decay_score(), best_article(), SOURCE_QUALITY | `scripts/fetch_news.py` | — |
+| A10 | Add compute_trending(): 24h filter, cluster, freq≥2, add "t":1 | `scripts/fetch_news.py` | A5, A9 |
+| A11 | Call compute_trending() before upload_bundles | `scripts/fetch_news.py` | A10 |
+| A12 | Add "t" to Firebase bundle short field mapping (optional) | `scripts/fetch_news.py` | A11 |
+| A13 | Update TOP_TRENDING_CATEGORIES to {"spt","ent","nat"} | `scripts/fetch_news.py` | — |
+
+### Phase B: Merged Categories (App)
+
+| ID | Task | File(s) | Depends |
+|----|------|---------|---------|
+| B1 | Reduce LocalCategories to 7 (nat, spt, ent, bus, tec, hlt, edu) | `news/.../LocalCategories.kt` | — |
+| B2 | Add getArticlesByCategories(categories: List<String>) to ArticleDao | `news/.../ArticleDao.kt` | — |
+| B4 | Add category expansion map in NewsRepositoryImpl | `news/.../NewsRepositoryImpl.kt` | B2 |
+| B5 | Use getArticlesByCategories when category is nat/bus/tec | `news/.../NewsRepositoryImpl.kt` | B4 |
+| B6 | Update categoryNameMap to 7 slugs only | `app/.../CategoryIcons.kt` | B1 |
+| B7 | Update CategoryDao seed (if seeds from LocalCategories) | `news/.../CategoryDao.kt` | B1 |
+| B8 | Add user-pref migration: pol/cri/int/def→nat, stk→bus, sci→tec | `app/.../NewsViewModel.kt` | B1 |
+
+### Phase C: Firebase + Room (Trending Flag)
+
+| ID | Task | File(s) | Depends |
+|----|------|---------|---------|
+| C1 | Add "t" field to Firebase bundle parsing | `news/.../FirebaseNewsSource.kt` | A12 |
+| C2 | Add trending: Boolean to ArticleEntity | `news/.../ArticleEntity.kt` | — |
+| C3 | Map Firebase "t" to ArticleEntity.trending in sync | `news/.../FirebaseNewsSource.kt` or mapper | C1, C2 |
+| C4 | Add trending column to articles table (migration if needed) | `news/.../NewsDatabase.kt` | C2 |
+| C5 | Update getTrendingArticles to WHERE trending = 1 | `news/.../ArticleDao.kt` | C4 |
+
+### Phase D: Context & Docs
+
+| ID | Task | File(s) | Depends |
+|----|------|---------|---------|
+| D1 | Update RSS feed table in github-actions-strategy.mdc | `.cursor/rules/github-actions-strategy.mdc` | A1 |
+| D2 | Update category codes in github-actions-strategy.mdc | `.cursor/rules/github-actions-strategy.mdc` | B1 |
+| D3 | Update category short codes in project-context.mdc | `.cursor/rules/project-context.mdc` | B1 |
+| D4 | Update firebase-read-strategy.mdc if trending affects read budget | `.cursor/rules/firebase-read-strategy.mdc` | — |
+
+### Execution Order
+
+```
+A1, A2, A3, A4, A7, A13 (parallel)
+    ↓
+A5, A6, A8, A9 (A5 depends on A4)
+    ↓
+A10, A11, A12
+    ↓
+B1, B2 (parallel)
+    ↓
+B4, B5, B6, B7, B8
+    ↓
+C1, C2, C4 (parallel)
+    ↓
+C3, C5
+    ↓
+D1, D2, D3, D4 (parallel)
+```
+
+### Task Summary
+
+| Phase | Tasks | Count |
+|-------|-------|-------|
+| A: RSS & Fetch | A1–A13 | 13 |
+| B: Merged Categories | B1–B2, B4–B8 | 7 |
+| C: Firebase + Room | C1–C5 | 5 |
+| D: Context & Docs | D1–D4 | 4 |
+| **Total** | | **29** |

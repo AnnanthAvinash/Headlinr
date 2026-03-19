@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import avinash.app.headlinr.util.categoryDisplayName
 import avinash.app.news.api.model.NewsArticle
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
@@ -72,7 +73,7 @@ fun ArticleCard(
                             .fillMaxWidth()
                             .height(260.dp)
                             .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)),
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.FillBounds,
                         error = {
                             Box(
                                 modifier = Modifier
@@ -118,7 +119,7 @@ fun ArticleCard(
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = article.category.replaceFirstChar { it.uppercase() },
+                        text = categoryDisplayName(article.category),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.SemiBold
                         ),

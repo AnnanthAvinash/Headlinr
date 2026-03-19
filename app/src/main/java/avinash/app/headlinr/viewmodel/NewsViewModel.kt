@@ -15,6 +15,7 @@ import androidx.paging.cachedIn
 import avinash.app.news.api.NewsRepository
 import avinash.app.news.api.model.Category
 import avinash.app.news.api.model.NewsArticle
+import avinash.app.news.api.model.SourceEntry
 import avinash.app.news.internal.remote.RemoteConfigManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -81,10 +82,18 @@ class NewsViewModel @Inject constructor(
     private val _activeCategory = MutableStateFlow<String?>(null)
     val activeCategory: StateFlow<String?> = _activeCategory.asStateFlow()
 
+    private val _activeSource = MutableStateFlow<String?>(null)
+    val activeSource: StateFlow<String?> = _activeSource.asStateFlow()
+
+    private val _availableSources = MutableStateFlow<List<SourceEntry>>(emptyList())
+    val availableSources: StateFlow<List<SourceEntry>> = _availableSources.asStateFlow()
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    val articles: Flow<PagingData<NewsArticle>> = _activeCategory
-        .flatMapLatest { newsRepository.getNewsPaged(it) }
-        .cachedIn(viewModelScope)
+    val articles: Flow<PagingData<NewsArticle>> = combine(_activeCategory, _activeSource) { cat, src ->
+        cat to src
+    }.flatMapLatest { (cat, src) ->
+        newsRepository.getNewsPaged(category = cat, source = src)
+    }.cachedIn(viewModelScope)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val searchResults: Flow<PagingData<NewsArticle>> = _searchQuery
@@ -128,6 +137,10 @@ class NewsViewModel @Inject constructor(
         _activeCategory.value = slug
     }
 
+    fun selectSource(sourceName: String?) {
+        _activeSource.value = sourceName
+    }
+
     private fun initialSync() {
         viewModelScope.launch {
             _isRefreshing.value = true
@@ -138,6 +151,7 @@ class NewsViewModel @Inject constructor(
             }
             loadTrendingArticles()
             loadTrendingTopics()
+            loadAvailableSources()
             _isRefreshing.value = false
         }
     }
@@ -146,6 +160,12 @@ class NewsViewModel @Inject constructor(
         viewModelScope.launch {
             val limit = remoteConfig.trendingArticleLimit
             _trendingArticles.value = newsRepository.getTrendingArticles(limit)
+        }
+    }
+
+    private fun loadAvailableSources() {
+        viewModelScope.launch {
+            _availableSources.value = newsRepository.getDistinctSources()
         }
     }
 
@@ -169,6 +189,7 @@ class NewsViewModel @Inject constructor(
                 _errorMessage.value = e.message ?: "Refresh failed"
             }
             loadTrendingArticles()
+            loadAvailableSources()
             _isRefreshing.value = false
         }
     }
@@ -210,11 +231,21 @@ class NewsViewModel @Inject constructor(
 
     // --- Category selection (onboarding) ---
 
+    private val slugMigration = mapOf(
+        "pol" to "nat", "cri" to "nat", "int" to "nat", "def" to "nat",
+        "stk" to "bus",
+        "sci" to "tec",
+    )
+
     private fun loadSelectedCategorySlugs() {
         viewModelScope.launch {
             val prefs = context.appPrefs.data.first()
             val slugs = prefs[KEY_SELECTED_CATEGORIES] ?: emptySet()
-            _selectedCategorySlugs.value = slugs
+            val migrated = slugs.map { slugMigration[it] ?: it }.toSet()
+            if (migrated != slugs) {
+                context.appPrefs.edit { it[KEY_SELECTED_CATEGORIES] = migrated }
+            }
+            _selectedCategorySlugs.value = migrated
         }
     }
 

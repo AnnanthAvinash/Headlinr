@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import avinash.app.headlinr.util.categoryDisplayName
 import avinash.app.news.api.model.NewsArticle
 import coil.compose.AsyncImage
 import java.text.SimpleDateFormat
@@ -79,7 +80,7 @@ fun TrendingCard(
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
                     Text(
-                        text = article.category.replaceFirstChar { it.uppercase() },
+                        text = categoryDisplayName(article.category),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.SemiBold
                         ),
