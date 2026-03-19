@@ -29,7 +29,7 @@ fun AppNavigation() {
             SplashScreen(
                 viewModel = viewModel,
                 onNavigate = { hasCategories ->
-                    val dest = if (hasCategories) "main" else "category_select"
+                    val dest =  "main"//if (hasCategories) "main" else "category_select"
                     navController.navigate(dest) {
                         popUpTo("splash") { inclusive = true }
                     }
@@ -53,6 +53,10 @@ fun AppNavigation() {
                 viewModel = viewModel,
                 onArticleClick = { articleId ->
                     navController.navigate("detail/$articleId")
+                },
+                onDirectRead = { url, articleId ->
+                    val encoded = URLEncoder.encode(url, "UTF-8")
+                    navController.navigate("webview/$encoded/$articleId")
                 }
             )
         }

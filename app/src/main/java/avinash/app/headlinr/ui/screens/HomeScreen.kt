@@ -1,6 +1,7 @@
 package avinash.app.headlinr.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Notifications
@@ -42,7 +42,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.InspectableModifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.paging.LoadState
@@ -51,21 +54,26 @@ import avinash.app.headlinr.ui.components.ArticleCard
 import avinash.app.headlinr.ui.components.InFeedAd
 import avinash.app.headlinr.ui.components.TrendingCard
 import avinash.app.headlinr.ui.theme.HeadlinrColors
+import avinash.app.headlinr.util.sourceFaviconUrl
 import avinash.app.headlinr.viewmodel.NewsViewModel
 import avinash.app.news.api.model.Category
-import coil.compose.AsyncImage
+import avinash.app.news.api.model.SourceEntry
+import coil.compose.SubcomposeAsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: NewsViewModel,
-    onArticleClick: (articleId: String) -> Unit
+    onArticleClick: (articleId: String) -> Unit,
+    onDirectRead: (url: String, articleId: String) -> Unit = { _, _ -> }
 ) {
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val trendingArticles by viewModel.trendingArticles.collectAsState()
     val bookmarkedIds by viewModel.bookmarkedIds.collectAsState()
     val userCategories by viewModel.userCategories.collectAsState()
     val activeCategory by viewModel.activeCategory.collectAsState()
+    val activeSource by viewModel.activeSource.collectAsState()
+    val availableSources by viewModel.availableSources.collectAsState()
     val articles = viewModel.articles.collectAsLazyPagingItems()
 
     val adPositions = remember(articles.itemCount) {
@@ -89,13 +97,23 @@ fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            item {
-                TopBar()
+           // item { TopBar() }
+
+            if (availableSources.isNotEmpty()) {
+                item {
+                    SourceFilterRow(
+                        sources = availableSources,
+                        activeSource = activeSource,
+                        onSourceClick = { entry ->
+                            viewModel.selectSource(if (activeSource == entry.name) null else entry.name)
+                        }
+                    )
+                }
             }
 
             if (trendingArticles.isNotEmpty()) {
                 item {
-                    SectionHeader(title = "Hottest News", onSeeMore = { })
+                    SectionHeader(title = "Today Trending", onSeeMore = { })
                 }
 
                 item {
@@ -106,7 +124,13 @@ fun HomeScreen(
                         itemsIndexed(trendingArticles, key = { _, it -> it.id }) { index, article ->
                             TrendingCard(
                                 article = article,
-                                onClick = { onArticleClick(article.id) },
+                                onClick = {
+                                    if (article.description.length < 200 && article.articleUrl.isNotBlank()) {
+                                        onDirectRead(article.articleUrl, article.id)
+                                    } else {
+                                        onArticleClick(article.id)
+                                    }
+                                },
                                 trendingIndex = index
                             )
                         }
@@ -188,7 +212,7 @@ fun HomeScreen(
                                 isBookmarked = article.id in bookmarkedIds,
                                 onClick = { onArticleClick(article.id) },
                                 onBookmarkClick = { viewModel.toggleBookmark(article.id) },
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
                             )
                         }
                     }
@@ -215,61 +239,115 @@ fun HomeScreen(
 }
 
 @Composable
+private fun SourceFilterRow(
+    sources: List<SourceEntry>,
+    activeSource: String?,
+    onSourceClick: (SourceEntry) -> Unit
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        items(sources, key = { it.name }) { entry ->
+            val isSelected = activeSource == entry.name
+            val favicon = sourceFaviconUrl(entry.sampleArticleUrl)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .width(64.dp)
+                    .clickable { onSourceClick(entry) }
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            else MaterialTheme.colorScheme.surfaceContainerHigh
+                        )
+                        .then(
+                            if (isSelected) Modifier.border(
+                                width = 2.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = CircleShape
+                            ) else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (favicon != null) {
+                        SubcomposeAsyncImage(
+                            model = favicon,
+                            contentDescription = entry.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape),
+                            loading = {
+                                SourceInitials(entry.name, isSelected)
+                            },
+                            error = {
+                                SourceInitials(entry.name, isSelected)
+                            }
+                        )
+                    } else {
+                        SourceInitials(entry.name, isSelected)
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = entry.name,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        fontSize = 10.sp
+                    ),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceInitials(sourceName: String, isSelected: Boolean) {
+    Text(
+        text = sourceName.split(" ").take(2).joinToString("") { it.firstOrNull()?.uppercase()?:"TEST" },
+        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+        color = if (isSelected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
 private fun TopBar() {
     Row(
         modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .fillMaxWidth(),
+        horizontalArrangement = Arrangement.End
     ) {
-        IconButton(onClick = { }) {
-            Icon(
-                Icons.Outlined.Menu,
-                contentDescription = "Menu",
-                tint = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.size(26.dp)
-            )
-        }
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = { }) {
-                BadgedBox(
-                    badge = {
-                        Badge(
-                            containerColor = HeadlinrColors.notificationBadge,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(8.dp)
-                        )
-                    }
-                ) {
-                    Icon(
-                        Icons.Outlined.Notifications,
-                        contentDescription = "Notifications",
-                        tint = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.size(26.dp)
+        IconButton(onClick = { }) {
+            BadgedBox(
+                badge = {
+                    Badge(
+                        containerColor = HeadlinrColors.notificationBadge,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(8.dp)
                     )
                 }
+            ) {
+                Icon(
+                    Icons.Outlined.Notifications,
+                    contentDescription = "Notifications",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.size(26.dp)
+                )
             }
         }
 
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "A",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
     }
 }
 
@@ -292,13 +370,6 @@ private fun SectionHeader(
             ),
             color = MaterialTheme.colorScheme.onBackground
         )
-        TextButton(onClick = onSeeMore) {
-            Text(
-                text = "See More",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
     }
 }
 

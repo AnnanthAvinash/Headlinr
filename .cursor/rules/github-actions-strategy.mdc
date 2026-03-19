@@ -61,8 +61,9 @@ Every article gets `_provider` key (`currentsapi` / `rss` / `newsdata` / `contex
 Stripped before Firebase upload (short field mapping in `upload_bundles`).
 
 ### Category Short Codes (CATEGORY_SHORT dict)
-API source categories normalized then mapped: pol/cri/int/def→nat, stk→bus, sci→tec. Short codes: `nat`, `bus`, `spt`, `ent`, `tec`, `hlt`, `edu`.
+API source categories normalized then mapped: pol/cri/int/def→nat, stk→bus, sci→tec. 7 merged short codes: `nat` (दुनिया), `spt` (खेल), `ent` (मनोरंजन), `bus` (व्यापार), `tec` (तकनीक), `hlt` (स्वास्थ्य), `edu` (शिक्षा).
 RSS feeds use short codes directly in their `category` field.
+App-side category expansion: nat→(nat,pol,cri,int,def), bus→(bus,stk), tec→(tec,sci). Single-category for spt, ent, hlt, edu.
 
 ### Quality Gate
 MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.

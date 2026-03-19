@@ -7,6 +7,7 @@ import androidx.paging.map
 import avinash.app.news.api.NewsRepository
 import avinash.app.news.api.model.Category
 import avinash.app.news.api.model.NewsArticle
+import avinash.app.news.api.model.SourceEntry
 import avinash.app.news.internal.local.dao.ArticleDao
 import avinash.app.news.internal.local.dao.BookmarkDao
 import avinash.app.news.internal.local.dao.CategoryDao
@@ -30,9 +31,18 @@ class NewsRepositoryImpl @Inject constructor(
 
     companion object {
         private const val PAGE_SIZE = 20
+
+        private val CATEGORY_EXPANSION = mapOf(
+            "nat" to listOf("nat", "pol", "cri", "int", "def"),
+            "bus" to listOf("bus", "stk"),
+            "tec" to listOf("tec", "sci"),
+        )
     }
 
-    override fun getNewsPaged(category: String?): Flow<PagingData<NewsArticle>> {
+    private fun expandCategory(category: String): List<String>? =
+        CATEGORY_EXPANSION[category]
+
+    override fun getNewsPaged(category: String?, source: String?): Flow<PagingData<NewsArticle>> {
         return Pager(
             config = PagingConfig(
                 pageSize = PAGE_SIZE,
@@ -40,10 +50,21 @@ class NewsRepositoryImpl @Inject constructor(
                 enablePlaceholders = false
             ),
             pagingSourceFactory = {
-                if (category == null) {
-                    articleDao.getArticlesPaged()
-                } else {
-                    articleDao.getArticlesByCategory(category)
+                when {
+                    category != null && source != null -> {
+                        val expanded = expandCategory(category)
+                        if (expanded != null) articleDao.getArticlesByCategoriesAndSource(expanded, source)
+                        else articleDao.getArticlesByCategoryAndSource(category, source)
+                    }
+                    source != null ->
+                        articleDao.getArticlesBySource(source)
+                    category != null -> {
+                        val expanded = expandCategory(category)
+                        if (expanded != null) articleDao.getArticlesByCategories(expanded)
+                        else articleDao.getArticlesByCategory(category)
+                    }
+                    else ->
+                        articleDao.getArticlesPaged()
                 }
             }
         ).flow.map { pagingData ->
@@ -69,6 +90,10 @@ class NewsRepositoryImpl @Inject constructor(
 
     override suspend fun getTrendingArticles(limit: Int): List<NewsArticle> {
         return articleDao.getTrendingArticles(limit).map { it.toDomain() }
+    }
+
+    override suspend fun getDistinctSources(): List<SourceEntry> {
+        return articleDao.getDistinctSources().map { SourceEntry(it.sourceName, it.articleUrl) }
     }
 
     override fun searchArticles(query: String): Flow<PagingData<NewsArticle>> {
