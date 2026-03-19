@@ -2,7 +2,7 @@ name: Fetch & Upload News
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/20 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -14,18 +14,63 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      - name: IST schedule gate
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "SHOULD_RUN=true" >> "$GITHUB_OUTPUT"
+            echo "Manual trigger — bypassing schedule gate"
+            exit 0
+          fi
+          python3 -c "
+          from datetime import datetime, timezone, timedelta
+          IST = timezone(timedelta(hours=5, minutes=30))
+          now = datetime.now(IST)
+          h, m = now.hour, (now.minute // 20) * 20
+
+          # IST schedule: maps each hour to allowed :00/:20/:40 slots
+          # 60 runs/day, peak-weighted for Indian users
+          # Max 3 slots/hr with */20 cron → 72 max, skip 12
+          #
+          # 00-05 (night low)       →  5 runs
+          # 05-08 (morning ramp)    →  9 runs  (all slots)
+          # 08-11 (morning peak)    →  9 runs  (all slots)
+          # 11-14 (lunch lull)      →  8 runs
+          # 14-16 (afternoon low)   →  5 runs
+          # 16-19 (evening peak)    →  9 runs  (all slots)
+          # 19-22 (night peak)      →  9 runs  (all slots)
+          # 22-00 (late evening)    →  6 runs  (all slots)
+          S = {
+              0: [0],          1: [0],          2: [0],          3: [0, 40],      4: [],
+              5: [0, 20, 40],  6: [0, 20, 40],  7: [0, 20, 40],
+              8: [0, 20, 40],  9: [0, 20, 40], 10: [0, 20, 40],
+             11: [0, 20, 40], 12: [0, 20, 40], 13: [0, 20],
+             14: [0, 20, 40], 15: [0, 20],
+             16: [0, 20, 40], 17: [0, 20, 40], 18: [0, 20, 40],
+             19: [0, 20, 40], 20: [0, 20, 40], 21: [0, 20, 40],
+             22: [0, 20, 40], 23: [0, 20, 40],
+          }
+          run = m in S.get(h, [])
+          print(f'IST {now.strftime(\"%H:%M\")} slot :{m:02d} → {\"RUN\" if run else \"SKIP\"}')
+          print(f'SHOULD_RUN={\"true\" if run else \"false\"}')
+          " | tee /dev/stderr | tail -1 >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
+        if: steps.gate.outputs.SHOULD_RUN == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: steps.gate.outputs.SHOULD_RUN == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install dependencies
+        if: steps.gate.outputs.SHOULD_RUN == 'true'
         run: pip install -r scripts/requirements.txt
 
       - name: Restore article ID cache
+        if: steps.gate.outputs.SHOULD_RUN == 'true'
         uses: actions/cache@v4
         with:
           path: scripts/.article_cache.json
@@ -34,18 +79,21 @@ jobs:
             article-ids-
 
       - name: Write Firebase credentials
+        if: steps.gate.outputs.SHOULD_RUN == 'true'
         run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/firebase-sa.json
 
       - name: Run news fetcher
+        if: steps.gate.outputs.SHOULD_RUN == 'true'
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/firebase-sa.json
         run: python scripts/fetch_news.py
 
       - name: Cleanup credentials
-        if: always()
+        if: always() && steps.gate.outputs.SHOULD_RUN == 'true'
         run: rm -f /tmp/firebase-sa.json
 
       - name: Commit run metrics
+        if: steps.gate.outputs.SHOULD_RUN == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

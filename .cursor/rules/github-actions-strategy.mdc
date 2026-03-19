@@ -9,27 +9,55 @@ alwaysApply: true
 
 | Resource | Limit | Our Usage | % Used |
 |----------|-------|-----------|--------|
-| GitHub Actions minutes (private repo) | 2,000/month | ~1,440/month | 72% |
-| RSS feeds (29) | Unlimited | 1,392/day | FREE |
+| GitHub Actions minutes (private repo) | 2,000/month | ~1,800/month | 90% |
+| RSS feeds (29) | Unlimited | 1,740/day | FREE |
 
 API providers (currentsapi, newsdata.io, contextualweb) are retained in code but **disabled**. Only RSS feeds run.
 
 ## Schedule
 
 ```
-cron: '*/30 * * * *'   ← every 30 minutes
+cron: '*/20 * * * *'   ← every 20 minutes (72 triggers/day)
+IST schedule gate      ← Python step skips 12 triggers, 60 actual runs/day
+```
 
-Every run:
-  → All 29 Hindi RSS feeds (parallel, free)
+### IST-Weighted Distribution (60 runs/day)
+
+| IST Window | Hours | Runs | Gap (approx) | Rationale |
+|---|---|---|---|---|
+| 00:00–05:00 | 5h | 5 | ~60 min | Night low — minimal news publishing |
+| 05:00–08:00 | 3h | 9 | ~20 min | Morning ramp — all slots |
+| 08:00–11:00 | 3h | 9 | ~20 min | Morning peak — all slots |
+| 11:00–14:00 | 3h | 8 | ~22 min | Lunch lull |
+| 14:00–16:00 | 2h | 5 | ~24 min | Afternoon low |
+| 16:00–19:00 | 3h | 9 | ~20 min | Evening peak — all slots |
+| 19:00–22:00 | 3h | 9 | ~20 min | Night peak — all slots |
+| 22:00–00:00 | 2h | 6 | ~20 min | Late evening — all slots |
+
+### IST Gate Mechanism
+
+The workflow triggers every 20 min (`:00`, `:20`, `:40` each hour = 72/day). The first step runs a Python IST gate that checks `S[hour]` for allowed minute slots. If the current slot isn't in the schedule, all subsequent steps are skipped via `if: steps.gate.outputs.SHOULD_RUN == 'true'`. Skipped runs cost ~15 sec each (~3 min/day overhead). `workflow_dispatch` (manual trigger) always bypasses the gate.
+
+### Per-Hour Slot Map (IST)
+
+```
+ 0: [:00]              1: [:00]              2: [:00]              3: [:00, :40]         4: []
+ 5: [:00, :20, :40]    6: [:00, :20, :40]    7: [:00, :20, :40]
+ 8: [:00, :20, :40]    9: [:00, :20, :40]   10: [:00, :20, :40]
+11: [:00, :20, :40]   12: [:00, :20, :40]   13: [:00, :20]
+14: [:00, :20, :40]   15: [:00, :20]
+16: [:00, :20, :40]   17: [:00, :20, :40]   18: [:00, :20, :40]
+19: [:00, :20, :40]   20: [:00, :20, :40]   21: [:00, :20, :40]
+22: [:00, :20, :40]   23: [:00, :20, :40]
 ```
 
 ## Rotation (daily totals)
 
 | Provider | Calls/Day | Cost |
 |----------|-----------|------|
-| RSS feeds | 1,392 fetches | Free |
-| Firebase writes | ~40–80 bundle docs | <0.5% of 20,000 |
-| GitHub Actions | ~48 min/day | ~72% of 2,000/month |
+| RSS feeds | 1,740 fetches | Free |
+| Firebase writes | ~50–100 bundle docs | <0.5% of 20,000 |
+| GitHub Actions | ~60 min/day (+ ~3 min skip overhead) | ~90% of 2,000/month |
 
 ## Content Pipeline (fetch_news.py)
 
@@ -156,7 +184,8 @@ These can be re-enabled by modifying `main()` in `fetch_news.py` if needed in th
 ## Rules for Any Code Change
 
 - NEVER add a new API provider without calculating daily calls vs free tier limit
-- NEVER increase cron frequency — 30 min is tuned to balance freshness vs GitHub Actions minutes
+- NEVER increase cron frequency below `*/20` or add more slots to the IST gate — 60 runs/day is tuned to stay within 2,000 min/month
+- NEVER remove the IST schedule gate — it controls run distribution and budget compliance
 - NEVER remove the cross-run cache — it prevents duplicate Firebase writes
 - NEVER store `_provider` in Firebase — strip before upload via field mapping in `upload_bundles`
 - NEVER add Firebase deletion logic to `article_bundles` until Task F2 is designed and approved
