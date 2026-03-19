@@ -42,6 +42,7 @@ object NewsProvidesModule {
             NewsDatabase::class.java,
             "news_database"
         )
+            .addMigrations(NewsDatabase.MIGRATION_4_5)
             .fallbackToDestructiveMigration(true)
             .build()
     }

@@ -15,7 +15,7 @@ class FirebaseNewsSource @Inject constructor(
 ) {
     companion object {
         private const val COLLECTION = "article_bundles"
-        private const val BUNDLE_SIZE = 30
+        private const val BUNDLE_SIZE = 50
     }
 
     suspend fun fetchLatestArticles(limit: Long = 100): List<ArticleEntity> {
@@ -44,6 +44,7 @@ class FirebaseNewsSource @Inject constructor(
                             publishedAt = (item["p"] as? Number)?.toLong() ?: 0L,
                             sourceName = item["s"] as? String ?: "",
                             category = item["c"] as? String ?: "nat",
+                            trending = (item["tr"] as? Number)?.toInt() == 1,
                             cachedAt = now
                         )
                         articles.add(entity)
@@ -89,6 +90,7 @@ class FirebaseNewsSource @Inject constructor(
                             publishedAt = pubMs,
                             sourceName = item["s"] as? String ?: "",
                             category = item["c"] as? String ?: "nat",
+                            trending = (item["tr"] as? Number)?.toInt() == 1,
                             cachedAt = now
                         )
                         articles.add(entity)

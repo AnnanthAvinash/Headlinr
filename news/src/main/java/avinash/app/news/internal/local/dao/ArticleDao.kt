@@ -1,10 +1,16 @@
 package avinash.app.news.internal.local.dao
 
 import androidx.paging.PagingSource
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
 import avinash.app.news.internal.local.entity.ArticleEntity
+
+data class SourceProjection(
+    @ColumnInfo(name = "sourceName") val sourceName: String,
+    @ColumnInfo(name = "articleUrl") val articleUrl: String
+)
 
 @Dao
 interface ArticleDao {
@@ -14,6 +20,12 @@ interface ArticleDao {
 
     @Query("SELECT * FROM articles WHERE category = :category ORDER BY publishedAt DESC")
     fun getArticlesByCategory(category: String): PagingSource<Int, ArticleEntity>
+
+    @Query("SELECT * FROM articles WHERE sourceName = :source ORDER BY publishedAt DESC")
+    fun getArticlesBySource(source: String): PagingSource<Int, ArticleEntity>
+
+    @Query("SELECT * FROM articles WHERE category = :category AND sourceName = :source ORDER BY publishedAt DESC")
+    fun getArticlesByCategoryAndSource(category: String, source: String): PagingSource<Int, ArticleEntity>
 
     @Query("SELECT MAX(publishedAt) FROM articles")
     suspend fun getNewestTimestamp(): Long?
@@ -38,8 +50,18 @@ interface ArticleDao {
     )
     suspend fun deleteStaleFromLargeCategories(threshold: Long, minCount: Int = 100)
 
-    @Query("SELECT * FROM articles WHERE category = 'trending' ORDER BY publishedAt DESC LIMIT :limit")
-    suspend fun getTrendingArticles(limit: Int = 10): List<ArticleEntity>
+    @Query(
+        "SELECT * FROM articles WHERE trending = 1 " +
+        "ORDER BY publishedAt DESC LIMIT :limit"
+    )
+    suspend fun getTrendingArticles(limit: Int = 15): List<ArticleEntity>
+
+    @Query(
+        "SELECT sourceName, articleUrl FROM articles " +
+        "WHERE sourceName IS NOT NULL AND sourceName != '' " +
+        "GROUP BY sourceName ORDER BY sourceName ASC"
+    )
+    suspend fun getDistinctSources(): List<SourceProjection>
 
     @Query(
         "SELECT * FROM articles WHERE title LIKE '%' || :query || '%' " +

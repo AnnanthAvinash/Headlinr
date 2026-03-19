@@ -9,4 +9,5 @@ data class NewsArticle(
     val publishedAt: Long,
     val sourceName: String,
     val category: String,
+    val trending: Boolean = false,
 )
