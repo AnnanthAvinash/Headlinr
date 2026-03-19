@@ -232,7 +232,7 @@ class NewsViewModel @Inject constructor(
     // --- Category selection (onboarding) ---
 
     private val slugMigration = mapOf(
-        "pol" to "nat", "cri" to "nat", "int" to "nat", "def" to "nat",
+        "pol" to "nat", "cri" to "nat",
         "stk" to "bus",
         "sci" to "tec",
     )

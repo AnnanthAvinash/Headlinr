@@ -50,7 +50,7 @@ DESC_MAX_LEN = 500
 # ---------------------------------------------------------------------------
 
 RSS_FEEDS = [
-    # Global (nat) — merged from nat, pol, cri, int, def
+    # National (nat) — covers all India news including politics, crime
     {"url": "https://www.aajtak.in/rssfeeds/?id=home", "category": "nat", "source": "Aaj Tak"},
     {"url": "https://www.abplive.com/news/india/feed", "category": "nat", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/india/feed", "category": "nat", "source": "TV9 Hindi"},
@@ -105,10 +105,6 @@ URL_CATEGORY_SIGNALS = [
     ("/education/",     "edu"),
     ("/crime/",         "nat"),
     ("/politics/",      "nat"),
-    ("/world/",         "nat"),
-    ("/international/", "nat"),
-    ("/defence/",       "nat"),
-    ("/defense/",       "nat"),
     ("/india/",         "nat"),
     ("/national/",      "nat"),
 ]
@@ -155,10 +151,6 @@ CATEGORY_MAP = {
     "space": "science",
     "environment": "science",
     "politics": "politics",
-    "world": "world",
-    "international": "world",
-    "global": "world",
-    "regional": "world",
     "domestic": "national",
     "nation": "national",
     "india": "national",
@@ -174,10 +166,10 @@ CATEGORY_MAP = {
     "other": "general",
 }
 
-# pol/cri/int/def map to nat; stk to bus; sci to tec (plan 25.3)
+# pol/cri map to nat; stk to bus; sci to tec
 CATEGORY_SHORT = {
     "national": "nat", "trending": "nat", "general": "nat",
-    "politics": "nat", "crime": "nat", "world": "nat", "international": "nat", "defense": "nat",
+    "politics": "nat", "crime": "nat",
     "business": "bus", "finance": "bus", "economy": "bus", "stock": "bus",
     "sports": "spt", "cricket": "spt",
     "entertainment": "ent", "bollywood": "ent",

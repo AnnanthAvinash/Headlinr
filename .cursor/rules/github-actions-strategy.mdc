@@ -54,7 +54,8 @@ Stripped before Firebase upload (short field mapping in `upload_bundles`).
 ### Category Short Codes (CATEGORY_SHORT dict)
 RSS feeds use short codes directly in their `category` field.
 7 merged short codes: `nat` (दुनिया), `spt` (खेल), `ent` (मनोरंजन), `bus` (व्यापार), `tec` (तकनीक), `hlt` (स्वास्थ्य), `edu` (शिक्षा).
-App-side category expansion: nat→(nat,pol,cri,int,def), bus→(bus,stk), tec→(tec,sci). Single-category for spt, ent, hlt, edu.
+App-side category expansion: nat→(nat,pol,cri), bus→(bus,stk), tec→(tec,sci). Single-category for spt, ent, hlt, edu.
+International/world/defense categories removed — Indian RSS feeds cover all relevant news under `nat`.
 
 ### Quality Gate
 MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.
