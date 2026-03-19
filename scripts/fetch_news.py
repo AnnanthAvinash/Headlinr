@@ -1,6 +1,6 @@
 """
 Headlinr — News Fetcher for GitHub Actions
-Fetches from 34 Hindi RSS feeds, normalizes, deduplicates,
+Fetches from 29 Hindi RSS feeds from 12 sources, normalizes, deduplicates,
 bundles up to 50 articles per Firestore document, and uploads to Firebase.
 
 Single-tier schedule: every 30 min, RSS feeds only.
@@ -45,7 +45,9 @@ IMAGE_CHECK_SAMPLE = 5
 DESC_MAX_LEN = 500
 
 # ---------------------------------------------------------------------------
-# RSS Feed Configuration — 34 verified Hindi feeds (HLNAPP-39)
+# RSS Feed Configuration — 29 verified Hindi feeds from 12 sources
+# Jansatta removed (all feeds return 403/redirect, confirmed dead 2026-03-19)
+# Zee News switched from English to Hindi RSS
 # Category values are short codes; pol/cri map to nat, stk to bus
 # ---------------------------------------------------------------------------
 
@@ -60,13 +62,11 @@ RSS_FEEDS = [
     {"url": "https://hindi.oneindia.com/rss/feeds/hindi-india-fb.xml", "category": "nat", "source": "OneIndia Hindi"},
     {"url": "https://hindi.oneindia.com/rss/feeds/hindi-trending-fb.xml", "category": "nat", "source": "OneIndia Hindi"},
     {"url": "https://feeds.bbci.co.uk/hindi/rss.xml", "category": "nat", "source": "BBC Hindi"},
-    {"url": "https://www.jansatta.com/national/feed/", "category": "nat", "source": "Jansatta"},
     {"url": "https://www.prabhatkhabar.com/national/feed", "category": "nat", "source": "Prabhat Khabar"},
-    {"url": "https://zeenews.india.com/rss/india-national-news.xml", "category": "nat", "source": "Zee News"},
+    {"url": "https://zeenews.india.com/hindi/rss.xml", "category": "nat", "source": "Zee News Hindi"},
     # ── Sports (spt) ──────────────────────────────────────────────────────
     {"url": "https://www.tv9hindi.com/sports/feed", "category": "spt", "source": "TV9 Hindi"},
     {"url": "https://www.indiatv.in/rssnews/topstory-sports.xml", "category": "spt", "source": "India TV"},
-    {"url": "https://www.jansatta.com/khel/feed/", "category": "spt", "source": "Jansatta"},
     {"url": "https://www.prabhatkhabar.com/sports/feed", "category": "spt", "source": "Prabhat Khabar"},
     # ── Entertainment (ent) ───────────────────────────────────────────────
     {"url": "https://www.abplive.com/entertainment/bollywood/feed", "category": "ent", "source": "ABP Live"},
@@ -74,7 +74,6 @@ RSS_FEEDS = [
     {"url": "https://www.indiatv.in/rssnews/topstory-entertainment.xml", "category": "ent", "source": "India TV"},
     {"url": "https://www.bollywoodhungama.com/rss/news.xml", "category": "ent", "source": "Bollywood Hungama"},
     {"url": "https://hindi.oneindia.com/rss/feeds/hindi-entertainment-fb.xml", "category": "ent", "source": "OneIndia Hindi"},
-    {"url": "https://www.jansatta.com/entertainment/feed/", "category": "ent", "source": "Jansatta"},
     # ── Business (bus) ────────────────────────────────────────────────────
     {"url": "https://www.abplive.com/business/feed", "category": "bus", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/business/feed", "category": "bus", "source": "TV9 Hindi"},
@@ -84,10 +83,8 @@ RSS_FEEDS = [
     # ── Technology (tec) ──────────────────────────────────────────────────
     {"url": "https://www.abplive.com/technology/feed", "category": "tec", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/technology/feed", "category": "tec", "source": "TV9 Hindi"},
-    {"url": "https://www.jansatta.com/technology-news/feed/", "category": "tec", "source": "Jansatta"},
     # ── Health (hlt) ──────────────────────────────────────────────────────
     {"url": "https://www.abplive.com/health/feed", "category": "hlt", "source": "ABP Live"},
-    {"url": "https://www.jansatta.com/health-news-hindi/feed/", "category": "hlt", "source": "Jansatta"},
     # ── Education (edu) ───────────────────────────────────────────────────
     {"url": "https://www.abplive.com/education/feed", "category": "edu", "source": "ABP Live"},
     {"url": "https://hindi.etnownews.com/feeds/gns-etn-hindi-education.xml", "category": "edu", "source": "ET Now Swadesh"},
@@ -245,13 +242,11 @@ SOURCE_NORMALIZE = {
     "thewire.in": "The Wire",
     "indianexpress.com": "Indian Express",
     "dnaindia.com": "DNA India",
-    "zeenews.india.com": "Zee News",
-    "www.zeenews.india.com": "Zee News",
+    "zeenews.india.com": "Zee News Hindi",
+    "www.zeenews.india.com": "Zee News Hindi",
     "aajtak.in": "Aaj Tak",
     "hindi.oneindia.com": "OneIndia Hindi",
     "oneindia.com": "OneIndia Hindi",
-    "jansatta.com": "Jansatta",
-    "www.jansatta.com": "Jansatta",
     "prabhatkhabar.com": "Prabhat Khabar",
     "www.prabhatkhabar.com": "Prabhat Khabar",
     "hindi.etnownews.com": "ET Now Swadesh",
@@ -930,7 +925,7 @@ def save_cache(ids: set[str]):
 SOURCE_QUALITY = {
     "Times of India": 1, "NDTV": 1, "Reuters": 1, "BBC": 1, "The Hindu": 1,
     "ABP Live": 1, "TV9 Hindi": 1, "India TV": 1, "Aaj Tak": 1,
-    "BBC Hindi": 1, "Jansatta": 1, "Zee News": 1, "OneIndia Hindi": 1,
+    "BBC Hindi": 1, "Zee News Hindi": 1, "OneIndia Hindi": 1,
     "Prabhat Khabar": 1, "ET Now Swadesh": 1,
 }
 

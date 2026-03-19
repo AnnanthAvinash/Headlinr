@@ -9,8 +9,8 @@ alwaysApply: true
 
 | Resource | Limit | Our Usage | % Used |
 |----------|-------|-----------|--------|
-| GitHub Actions minutes (private repo) | 2,000/month | ~1,600/month | 80% |
-| RSS feeds (34) | Unlimited | 1,632/day | FREE |
+| GitHub Actions minutes (private repo) | 2,000/month | ~1,440/month | 72% |
+| RSS feeds (29) | Unlimited | 1,392/day | FREE |
 
 API providers (currentsapi, newsdata.io, contextualweb) are retained in code but **disabled**. Only RSS feeds run.
 
@@ -20,21 +20,21 @@ API providers (currentsapi, newsdata.io, contextualweb) are retained in code but
 cron: '*/30 * * * *'   ← every 30 minutes
 
 Every run:
-  → All 34 Hindi RSS feeds (parallel, free)
+  → All 29 Hindi RSS feeds (parallel, free)
 ```
 
 ## Rotation (daily totals)
 
 | Provider | Calls/Day | Cost |
 |----------|-----------|------|
-| RSS feeds | 1,632 fetches | Free |
+| RSS feeds | 1,392 fetches | Free |
 | Firebase writes | ~40–80 bundle docs | <0.5% of 20,000 |
-| GitHub Actions | ~53 min/day | ~80% of 2,000/month |
+| GitHub Actions | ~48 min/day | ~72% of 2,000/month |
 
 ## Content Pipeline (fetch_news.py)
 
 ```
-Fetch (34 RSS) → Normalize → Dedup (3-layer) → Bundle (≤50/doc) → upload_bundles() → article_bundles
+Fetch (29 RSS) → Normalize → Dedup (3-layer) → Bundle (≤50/doc) → upload_bundles() → article_bundles
 ```
 
 Short field names in each bundle: `i`=id, `t`=title, `d`=description, `img`=imageUrl, `u`=articleUrl, `p`=publishedAt (ms), `s`=sourceName, `c`=category, `tr`=trending (1 if trending, omitted otherwise)
@@ -63,7 +63,7 @@ MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.
 ### Trending (plan 26)
 24h filter, cluster by normalize_title, freq≥2 distinct sources. Add `tr`:1 for trending articles only.
 
-## RSS Feed List (34 feeds — Hindi, 13 sources)
+## RSS Feed List (29 feeds — Hindi, 12 sources)
 
 | Category | Source | URL |
 |----------|--------|-----|
@@ -76,19 +76,16 @@ MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.
 | `nat` | OneIndia Hindi | hindi.oneindia.com/rss/feeds/hindi-india-fb.xml |
 | `nat` | OneIndia Hindi | hindi.oneindia.com/rss/feeds/hindi-trending-fb.xml |
 | `nat` | BBC Hindi | feeds.bbci.co.uk/hindi/rss.xml |
-| `nat` | Jansatta | jansatta.com/national/feed/ |
 | `nat` | Prabhat Khabar | prabhatkhabar.com/national/feed |
-| `nat` | Zee News | zeenews.india.com/rss/india-national-news.xml |
+| `nat` | Zee News Hindi | zeenews.india.com/hindi/rss.xml |
 | `spt` | TV9 Hindi | tv9hindi.com/sports/feed |
 | `spt` | India TV | indiatv.in/rssnews/topstory-sports.xml |
-| `spt` | Jansatta | jansatta.com/khel/feed/ |
 | `spt` | Prabhat Khabar | prabhatkhabar.com/sports/feed |
 | `ent` | ABP Live | abplive.com/entertainment/bollywood/feed |
 | `ent` | TV9 Hindi | tv9hindi.com/entertainment/feed |
 | `ent` | India TV | indiatv.in/rssnews/topstory-entertainment.xml |
 | `ent` | Bollywood Hungama | bollywoodhungama.com/rss/news.xml |
 | `ent` | OneIndia Hindi | hindi.oneindia.com/rss/feeds/hindi-entertainment-fb.xml |
-| `ent` | Jansatta | jansatta.com/entertainment/feed/ |
 | `bus` | ABP Live | abplive.com/business/feed |
 | `bus` | TV9 Hindi | tv9hindi.com/business/feed |
 | `bus` | Business Standard Hindi | hindi.business-standard.com/rss/markets/share-market.xml |
@@ -96,9 +93,7 @@ MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.
 | `bus` | ET Now Swadesh | hindi.etnownews.com/feeds/gns-etn-hindi-markets.xml |
 | `tec` | ABP Live | abplive.com/technology/feed |
 | `tec` | TV9 Hindi | tv9hindi.com/technology/feed |
-| `tec` | Jansatta | jansatta.com/technology-news/feed/ |
 | `hlt` | ABP Live | abplive.com/health/feed |
-| `hlt` | Jansatta | jansatta.com/health-news-hindi/feed/ |
 | `edu` | ABP Live | abplive.com/education/feed |
 | `edu` | ET Now Swadesh | hindi.etnownews.com/feeds/gns-etn-hindi-education.xml |
 
@@ -121,7 +116,7 @@ Per-provider table (raw→dedup→quality→fresh), per-category breakdown with 
 |------|---------|
 | `.github/workflows/fetch-news.yml` | Cron workflow, pip install, run script, commit metrics |
 | `.github/workflows/cleanup-firebase.yml` | One-time manual trigger to delete legacy collections |
-| `scripts/fetch_news.py` | Fetch from 34 Hindi RSS feeds (13 sources), normalize, deduplicate, bundle, upload to Firebase |
+| `scripts/fetch_news.py` | Fetch from 29 Hindi RSS feeds (12 sources), normalize, deduplicate, bundle, upload to Firebase |
 | `scripts/cleanup_firebase.py` | Batch-delete news_articles, categories, rss_metrics collections |
 | `scripts/requirements.txt` | Python deps (feedparser, google-cloud-firestore, Pillow, requests) |
 | `logs/run_metrics.csv` | Per-run metrics history |
