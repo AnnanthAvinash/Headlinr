@@ -97,19 +97,19 @@ URL_CATEGORY_SIGNALS = [
     ("/sports/",        "spt"),
     ("/cricket/",       "spt"),
     ("/business/",      "bus"),
+    ("/share-market/",  "bus"),
+    ("/markets/",       "bus"),
     ("/technology/",    "tec"),
     ("/tech/",          "tec"),
+    ("/science/",       "tec"),
     ("/health/",        "hlt"),
     ("/education/",     "edu"),
-    ("/crime/",         "cri"),
-    ("/politics/",      "pol"),
-    ("/science/",       "sci"),
-    ("/world/",         "int"),
-    ("/international/", "int"),
-    ("/defence/",       "def"),
-    ("/defense/",       "def"),
-    ("/share-market/",  "stk"),
-    ("/markets/",       "stk"),
+    ("/crime/",         "nat"),
+    ("/politics/",      "nat"),
+    ("/world/",         "nat"),
+    ("/international/", "nat"),
+    ("/defence/",       "nat"),
+    ("/defense/",       "nat"),
     ("/india/",         "nat"),
     ("/national/",      "nat"),
 ]
@@ -201,7 +201,6 @@ HINDI_STOPWORDS = frozenset({
 })
 
 # Quality gate (plan 26.4)
-MIN_TITLE_LEN = 100
 MIN_DESC_LEN = 250
 TOP_TRENDING_CATEGORIES = {"spt", "ent", "nat"}
 
@@ -599,7 +598,7 @@ def clean_html(text: str) -> str:
 def is_good_description(text: str) -> bool:
     cleaned = clean_html(text)
     length = len(cleaned)
-    if length < 200 or length > DESC_MAX_LEN:
+    if length < MIN_DESC_LEN or length > DESC_MAX_LEN:
         return False
     html_ratio = len(HTML_TAG_RE.findall(text)) / max(len(text), 1)
     return html_ratio < 0.3
@@ -1168,19 +1167,14 @@ def main():
     print(f"\nTotal unique articles this run: {len(unique_articles)}")
 
     # --- Quality gate (plan 26.4) ---
-    # MIN_TITLE_LEN=100, MIN_DESC_LEN=250; description truncated to max 500 chars
+    # MIN_DESC_LEN=250; description truncated to max 500 chars
     verified = []
     gate_no_img = 0
-    gate_short_title = 0
     gate_short_desc = 0
     for a in unique_articles:
         img = a.get("imageUrl") or ""
         if not _is_valid_image_url(img):
             gate_no_img += 1
-            continue
-        title_len = len((a.get("title") or "").strip())
-        if title_len < MIN_TITLE_LEN:
-            gate_short_title += 1
             continue
         desc_len = len((a.get("description") or "").strip())
         if desc_len < MIN_DESC_LEN:
@@ -1189,7 +1183,6 @@ def main():
         verified.append(a)
     print(f"Quality gate: {len(verified)} passed | "
           f"{gate_no_img} dropped (bad image) | "
-          f"{gate_short_title} dropped (title < {MIN_TITLE_LEN}) | "
           f"{gate_short_desc} dropped (desc < {MIN_DESC_LEN})")
 
     # --- Compute trending (plan 26) ---

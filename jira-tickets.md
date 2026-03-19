@@ -16,7 +16,6 @@
 Single task: RSS feeds, quality gate, trending, bundle size 50, workflow. One branch, one PR.
 
 ### Expected criteria (quality gate)
-- **Title:** min 100 chars
 - **Description:** min 250 chars, max 500 chars (truncated)
 - **Image:** rules unchanged (valid URL, ≥600px, no placeholders/logos)
 
