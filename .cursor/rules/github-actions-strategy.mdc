@@ -1,5 +1,5 @@
 ---
-description: GitHub Actions two-tier schedule, provider limits, RSS feeds, run metrics, and workflow constraints
+description: GitHub Actions schedule, RSS feeds, run metrics, and workflow constraints
 alwaysApply: true
 ---
 
@@ -10,32 +10,23 @@ alwaysApply: true
 | Resource | Limit | Our Usage | % Used |
 |----------|-------|-----------|--------|
 | GitHub Actions minutes (private repo) | 2,000/month | 1,440/month | 72% |
-| currentsapi | 1,000 req/day | 48/day | 4.8% |
-| newsdata.io | 200 credits/day | 18/day | 9% |
-| contextualweb.io | 10,000 req/month | 540/month | 5.4% |
 | RSS feeds (19) | Unlimited | 912/day | FREE |
 
-## Two-Tier Schedule
+API providers (currentsapi, newsdata.io, contextualweb) are retained in code but **disabled**. Only RSS feeds run.
+
+## Schedule
 
 ```
 cron: '*/30 * * * *'   ← every 30 minutes
 
-TIER 1 (every run — freshness):
-  → currentsapi latest headlines (1 API call)
+Every run:
   → All 19 Hindi RSS feeds (parallel, free)
-
-TIER 2 (every 4 hours — volume):
-  → newsdata.io: sports, technology, business (3 calls)
-  → contextualweb: health, science, entertainment (3 calls)
 ```
 
 ## Rotation (daily totals)
 
 | Provider | Calls/Day | Cost |
 |----------|-----------|------|
-| currentsapi | 48 | 4.8% of 1,000 |
-| newsdata.io | 18 credits | 9% of 200 |
-| contextualweb | 18 calls | 5.4% of 333/day |
 | RSS feeds | 912 fetches | Free |
 | Firebase writes | ~40–80 bundle docs | <0.5% of 20,000 |
 | GitHub Actions | ~48 min/day | 72% of 2,000/month |
@@ -43,7 +34,7 @@ TIER 2 (every 4 hours — volume):
 ## Content Pipeline (fetch_news.py)
 
 ```
-Fetch (3 API providers + 19 RSS) → Normalize → Dedup (3-layer) → Bundle (≤50/doc) → upload_bundles() → article_bundles
+Fetch (19 RSS) → Normalize → Dedup (3-layer) → Bundle (≤50/doc) → upload_bundles() → article_bundles
 ```
 
 Short field names in each bundle: `i`=id, `t`=title, `d`=description, `img`=imageUrl, `u`=articleUrl, `p`=publishedAt (ms), `s`=sourceName, `c`=category, `tr`=trending (1 if trending, omitted otherwise)
@@ -57,12 +48,12 @@ Short field names in each bundle: `i`=id, `t`=title, `d`=description, `img`=imag
 After fetching from RSS, `url_derived_category(article_url, feed_category)` checks the article URL path against `URL_CATEGORY_SIGNALS` (defined after `RSS_FEEDS`). First match wins and overrides the feed-assigned category. Fixes RSS feeds that leak articles from other sections (e.g. abplive.com/education/feed publishing entertainment articles). Logs `[cat-fix]` to stdout when an override fires.
 
 ### Provider Tagging
-Every article gets `_provider` key (`currentsapi` / `rss` / `newsdata` / `contextualweb`).
+Every article gets `_provider` key (`rss`).
 Stripped before Firebase upload (short field mapping in `upload_bundles`).
 
 ### Category Short Codes (CATEGORY_SHORT dict)
-API source categories normalized then mapped: pol/cri/int/def→nat, stk→bus, sci→tec. 7 merged short codes: `nat` (दुनिया), `spt` (खेल), `ent` (मनोरंजन), `bus` (व्यापार), `tec` (तकनीक), `hlt` (स्वास्थ्य), `edu` (शिक्षा).
 RSS feeds use short codes directly in their `category` field.
+7 merged short codes: `nat` (दुनिया), `spt` (खेल), `ent` (मनोरंजन), `bus` (व्यापार), `tec` (तकनीक), `hlt` (स्वास्थ्य), `edu` (शिक्षा).
 App-side category expansion: nat→(nat,pol,cri,int,def), bus→(bus,stk), tec→(tec,sci). Single-category for spt, ent, hlt, edu.
 
 ### Quality Gate
@@ -100,7 +91,7 @@ MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.
 Appended after every run. Columns:
 `timestamp, tier, raw_total, within_run_dups, unique_this_run, cross_run_dups, fresh_unique, currentsapi, rss, newsdata, contextualweb, ai, trending_count, per_cat_nat, per_cat_spt, per_cat_ent, per_cat_bus, per_cat_tec, per_cat_hlt, per_cat_edu, gate_dropped_image, gate_dropped_desc, duration_sec`
 
-New columns (added HLNAPP-37): `trending_count` (articles marked trending), `per_cat_*` (per-category counts after quality gate), `gate_dropped_image`/`gate_dropped_desc` (quality gate drop reasons), `duration_sec` (wall-clock run time).
+Tier column now always `rss_only`. API provider columns retained for backward compatibility but always 0.
 
 Committed and pushed by the workflow via `github-actions[bot]`.
 
@@ -114,7 +105,7 @@ Per-provider table (raw→dedup→quality→fresh), per-category breakdown with 
 |------|---------|
 | `.github/workflows/fetch-news.yml` | Cron workflow, pip install, run script, commit metrics |
 | `.github/workflows/cleanup-firebase.yml` | One-time manual trigger to delete legacy collections |
-| `scripts/fetch_news.py` | Fetch, normalize, deduplicate, bundle, upload to Firebase |
+| `scripts/fetch_news.py` | Fetch from 19 Hindi RSS feeds, normalize, deduplicate, bundle, upload to Firebase |
 | `scripts/cleanup_firebase.py` | Batch-delete news_articles, categories, rss_metrics collections |
 | `scripts/requirements.txt` | Python deps (feedparser, google-cloud-firestore, Pillow, requests) |
 | `logs/run_metrics.csv` | Per-run metrics history |
@@ -122,7 +113,9 @@ Per-provider table (raw→dedup→quality→fresh), per-category breakdown with 
 
 ## Secrets Required
 
-`CURRENTSAPI_KEY`, `NEWSDATA_KEY`, `RAPIDAPI_KEY`, `FIREBASE_SERVICE_ACCOUNT` (entire JSON)
+`FIREBASE_SERVICE_ACCOUNT` (entire JSON)
+
+API keys (`CURRENTSAPI_KEY`, `NEWSDATA_KEY`, `RAPIDAPI_KEY`) no longer passed to the workflow but may still exist in repo secrets.
 
 ## RSS Image Extraction
 
@@ -140,6 +133,14 @@ Per-provider table (raw→dedup→quality→fresh), per-category breakdown with 
 - Author avatars, headshots, favicons, social share icons
 - Ad banners, sponsors, watermarks, tracking pixels
 - Patterns defined in `PLACEHOLDER_PATTERNS` + `JUNK_IMAGE_PATTERNS`
+
+## Disabled API Providers (code retained, not called)
+
+- **currentsapi** — `fetch_currentsapi_latest()` exists but is not called from `main()`
+- **newsdata.io** — `fetch_newsdata_category()` exists but is not called from `main()`
+- **contextualweb** — `fetch_contextualweb_query()` exists but is not called from `main()`
+
+These can be re-enabled by modifying `main()` in `fetch_news.py` if needed in the future.
 
 ## Rules for Any Code Change
 

@@ -1,11 +1,10 @@
 """
 Headlinr — News Fetcher for GitHub Actions
-Fetches from multiple providers + RSS feeds, normalizes, deduplicates,
+Fetches from 19 Hindi RSS feeds, normalizes, deduplicates,
 bundles up to 50 articles per Firestore document, and uploads to Firebase.
 
-Two-tier schedule:
-  TIER 1 (every 30 min): currentsapi latest headlines + all RSS feeds
-  TIER 2 (every 4 hours): newsdata.io + contextualweb category fills
+Single-tier schedule: every 30 min, RSS feeds only.
+API providers (currentsapi, newsdata, contextualweb) are retained but disabled.
 """
 
 import csv
@@ -1068,7 +1067,7 @@ METRICS_CSV = Path(__file__).resolve().parent.parent / "logs" / "run_metrics.csv
 
 
 CATEGORY_CODES = ["nat", "spt", "ent", "bus", "tec", "hlt", "edu"]
-PROVIDERS = ["currentsapi", "rss", "newsdata", "contextualweb"]
+PROVIDERS = ["rss"]
 
 
 def append_run_metrics(
@@ -1125,15 +1124,10 @@ def append_run_metrics(
 
 
 def determine_tier() -> tuple[bool, bool]:
-    """Determine which tiers to run based on current UTC hour/minute."""
-    now = datetime.now(timezone.utc)
-    minute = now.minute
-    hour = now.hour
-
-    tier1 = True
-    tier2 = (hour % 4 == 0) and (minute < 30)
-
-    return tier1, tier2
+    """Determine which tiers to run based on current UTC hour/minute.
+    Tier 2 permanently disabled — RSS feeds only.
+    """
+    return True, False
 
 
 def _provider_counter(articles: list[dict]) -> dict[str, int]:
@@ -1235,9 +1229,7 @@ def main():
     print(f"Headlinr News Fetcher — {datetime.now(timezone.utc).isoformat()}")
     print("=" * 60)
 
-    tier1, tier2 = determine_tier()
-    print(f"Tier 1 (freshness): {'YES' if tier1 else 'NO'}")
-    print(f"Tier 2 (volume):    {'YES' if tier2 else 'NO'}")
+    print("Mode: RSS feeds only (API providers disabled)")
     print()
 
     db = firestore.Client()
@@ -1249,44 +1241,15 @@ def main():
     rss_metrics = []
     timings: dict[str, float] = {}
 
-    # --- TIER 1: Freshness (every run) ---
-    if tier1:
-        t0 = time.time()
-        print("\n--- TIER 1: currentsapi (latest headlines) ---")
-        articles = fetch_currentsapi_latest()
-        all_articles.extend(articles)
-        timings["api"] = time.time() - t0
+    # --- RSS feeds only (API providers disabled) ---
+    timings["api"] = 0.0
 
-        t0 = time.time()
-        print(f"\n--- TIER 1: RSS feeds ({len(RSS_FEEDS)} feeds, parallel) ---")
-        rss_articles, rss_metrics = fetch_all_rss_feeds()
-        all_articles.extend(rss_articles)
-        timings["rss"] = time.time() - t0
-        print(f"RSS total: {len(rss_articles)} articles from {len(RSS_FEEDS)} feeds")
-    else:
-        timings["api"] = 0.0
-        timings["rss"] = 0.0
-
-    # --- TIER 2: Volume (every 4 hours) ---
-    if tier2:
-        t0 = time.time()
-        print("\n--- TIER 2: newsdata.io (category fills) ---")
-        for cat in ["sports", "technology", "business"]:
-            articles = fetch_newsdata_category(cat)
-            all_articles.extend(articles)
-            time.sleep(1)
-
-        print("\n--- TIER 2: contextualweb (category fills) ---")
-        cw_queries = [
-            ("health", "health"),
-            ("science", "science"),
-            ("entertainment", "entertainment"),
-        ]
-        for query, target_cat in cw_queries:
-            articles = fetch_contextualweb_query(query, target_cat)
-            all_articles.extend(articles)
-            time.sleep(1)
-        timings["api"] += time.time() - t0
+    t0 = time.time()
+    print(f"\n--- RSS feeds ({len(RSS_FEEDS)} feeds, parallel) ---")
+    rss_articles, rss_metrics = fetch_all_rss_feeds()
+    all_articles.extend(rss_articles)
+    timings["rss"] = time.time() - t0
+    print(f"RSS total: {len(rss_articles)} articles from {len(RSS_FEEDS)} feeds")
 
     if not all_articles:
         print("\n[DONE] No articles fetched. Exiting.")
@@ -1356,7 +1319,7 @@ def main():
 
     # --- Run metrics (AC7) ---
     cross_run_dups = len(unique_articles) - written
-    tier_label = "tier1+2" if tier2 else "tier1"
+    tier_label = "rss_only"
     cat_counts = Counter(a.get("category", "?") for a in verified)
     duration_sec = time.time() - run_start
     append_run_metrics(

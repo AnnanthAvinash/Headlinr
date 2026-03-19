@@ -76,15 +76,13 @@ GitHub Actions (every 30 min) → Firebase Firestore (article_bundles) → news 
 |------|---------|
 | `.github/workflows/fetch-news.yml` | Cron workflow, runs every 30 min, uploads article bundles |
 | `.github/workflows/cleanup-firebase.yml` | One-time manual trigger, deletes legacy Firebase collections |
-| `scripts/fetch_news.py` | Fetches from 3 API providers + 19 Hindi RSS feeds, bundles, uploads to Firebase |
+| `scripts/fetch_news.py` | Fetches from 19 Hindi RSS feeds (API providers disabled), bundles, uploads to Firebase |
 | `scripts/cleanup_firebase.py` | Batch-deletes `news_articles`, `categories`, `rss_metrics` |
 | `scripts/requirements.txt` | Python deps for the workflow |
 
-Secrets required in GitHub repo: `CURRENTSAPI_KEY`, `NEWSDATA_KEY`, `RAPIDAPI_KEY`, `FIREBASE_SERVICE_ACCOUNT` (entire JSON).
+Secrets required in GitHub repo: `FIREBASE_SERVICE_ACCOUNT` (entire JSON). API keys (`CURRENTSAPI_KEY`, `NEWSDATA_KEY`, `RAPIDAPI_KEY`) no longer used but may still exist in repo secrets.
 
-Two-tier schedule:
-- **Tier 1** (every 30 min): currentsapi latest headlines + 19 Hindi RSS feeds
-- **Tier 2** (every 4 hours): newsdata.io + contextualweb category fills
+Single schedule — every 30 min, RSS feeds only (API providers disabled in code).
 
 ## Dependencies (version catalog)
 
