@@ -1,7 +1,7 @@
 """
 Headlinr — News Fetcher for GitHub Actions
 Fetches from multiple providers + RSS feeds, normalizes, deduplicates,
-bundles up to 30 articles per Firestore document, and uploads to Firebase.
+bundles up to 50 articles per Firestore document, and uploads to Firebase.
 
 Two-tier schedule:
   TIER 1 (every 30 min): currentsapi latest headlines + all RSS feeds
@@ -43,50 +43,88 @@ FIRESTORE_ARTICLES = "article_bundles"
 REQUEST_TIMEOUT = 15
 IMAGE_MIN_WIDTH = 600
 IMAGE_CHECK_SAMPLE = 5
-DESC_MAX_LEN = 450
+DESC_MAX_LEN = 500
 
 # ---------------------------------------------------------------------------
-# RSS Feed Configuration — 25 verified Hindi feeds
-# Category values are short codes matching LocalCategories in the Android app
+# RSS Feed Configuration — 19 verified Hindi feeds (plan 25.2)
+# Category values are short codes; pol/cri map to nat, stk to bus
 # ---------------------------------------------------------------------------
 
 RSS_FEEDS = [
-    # National (nat)
+    # Global (nat) — merged from nat, pol, cri, int, def
+    {"url": "https://www.aajtak.in/rssfeeds/?id=home", "category": "nat", "source": "Aaj Tak"},
     {"url": "https://www.abplive.com/news/india/feed", "category": "nat", "source": "ABP Live"},
-    # Politics (pol)
-    {"url": "https://www.tv9hindi.com/india/feed", "category": "pol", "source": "TV9 Hindi"},
-    {"url": "https://hindi.business-standard.com/rss/politics.xml", "category": "pol", "source": "Business Standard Hindi"},
-    {"url": "https://www.navjivanindia.com/stories.rss?section=politics", "category": "pol", "source": "Navjivan India"},
-    # Crime (cri)
-    {"url": "https://www.abplive.com/news/crime/feed", "category": "cri", "source": "ABP Live"},
-    # Sports — includes cricket (spt)
+    {"url": "https://www.tv9hindi.com/india/feed", "category": "nat", "source": "TV9 Hindi"},
+    {"url": "https://hindi.business-standard.com/rss/politics.xml", "category": "nat", "source": "Business Standard Hindi"},
+    {"url": "https://www.navjivanindia.com/stories.rss?section=politics", "category": "nat", "source": "Navjivan India"},
+    {"url": "https://www.abplive.com/news/crime/feed", "category": "nat", "source": "ABP Live"},
+    # Sports (spt)
     {"url": "https://www.tv9hindi.com/sports/feed", "category": "spt", "source": "TV9 Hindi"},
-    {"url": "https://api.livehindustan.com/feeds/rss/sports/rssfeed.xml", "category": "spt", "source": "Live Hindustan"},
-    {"url": "https://api.livehindustan.com/feeds/rss/cricket/rssfeed.xml", "category": "spt", "source": "Live Hindustan"},
     {"url": "https://www.indiatv.in/rssnews/topstory-sports.xml", "category": "spt", "source": "India TV"},
-    # Entertainment — Bollywood + South + OTT + Television merged (ent)
+    # Entertainment — 4 Bollywood-only (ent)
     {"url": "https://www.abplive.com/entertainment/bollywood/feed", "category": "ent", "source": "ABP Live"},
-    {"url": "https://www.abplive.com/entertainment/tamil-cinema/feed", "category": "ent", "source": "ABP Live"},
-    {"url": "https://www.tv9hindi.com/entertainment/south-cinema/feed", "category": "ent", "source": "TV9 Hindi"},
-    {"url": "https://www.abplive.com/entertainment/ott/feed", "category": "ent", "source": "ABP Live"},
-    {"url": "https://www.tv9hindi.com/entertainment/ott/feed", "category": "ent", "source": "TV9 Hindi"},
     {"url": "https://www.tv9hindi.com/entertainment/feed", "category": "ent", "source": "TV9 Hindi"},
-    {"url": "https://api.livehindustan.com/feeds/rss/entertainment/rssfeed.xml", "category": "ent", "source": "Live Hindustan"},
     {"url": "https://www.indiatv.in/rssnews/topstory-entertainment.xml", "category": "ent", "source": "India TV"},
-    {"url": "https://www.abplive.com/entertainment/television/feed", "category": "ent", "source": "ABP Live"},
-    # Business (bus)
+    {"url": "https://www.bollywoodhungama.com/rss/news.xml", "category": "ent", "source": "Bollywood Hungama"},
+    # Business (bus) — stk merged to bus
     {"url": "https://www.abplive.com/business/feed", "category": "bus", "source": "ABP Live"},
     {"url": "https://www.tv9hindi.com/business/feed", "category": "bus", "source": "TV9 Hindi"},
-    {"url": "https://hindi.business-standard.com/rss/business.xml", "category": "bus", "source": "Business Standard Hindi"},
-    # Stock Market (stk)
-    {"url": "https://hindi.business-standard.com/rss/markets/share-market.xml", "category": "stk", "source": "Business Standard Hindi"},
+    {"url": "https://hindi.business-standard.com/rss/markets/share-market.xml", "category": "bus", "source": "Business Standard Hindi"},
     # Technology (tec)
     {"url": "https://www.abplive.com/technology/feed", "category": "tec", "source": "ABP Live"},
+    {"url": "https://www.tv9hindi.com/technology/feed", "category": "tec", "source": "TV9 Hindi"},
     # Health (hlt)
     {"url": "https://www.abplive.com/health/feed", "category": "hlt", "source": "ABP Live"},
     # Education (edu)
     {"url": "https://www.abplive.com/education/feed", "category": "edu", "source": "ABP Live"},
 ]
+
+# User-Agent for RSS requests (Bollywood Hungama may block default)
+RSS_USER_AGENT = "Mozilla/5.0 (compatible; HeadlinrBot/1.0; +https://github.com/AnnanthAvinash/Headlinr)"
+
+# ---------------------------------------------------------------------------
+# URL-based category signals
+# Override feed-assigned category when the article URL clearly belongs
+# to a different section (e.g. abplive.com/education/feed leaking ent articles)
+# Checked in order — first match wins.
+# ---------------------------------------------------------------------------
+URL_CATEGORY_SIGNALS = [
+    ("/entertainment/", "ent"),
+    ("/bollywood/",     "ent"),
+    ("/south-cinema/",  "ent"),
+    ("/television/",    "ent"),
+    ("/ott/",           "ent"),
+    ("/sports/",        "spt"),
+    ("/cricket/",       "spt"),
+    ("/business/",      "bus"),
+    ("/share-market/",  "bus"),
+    ("/markets/",       "bus"),
+    ("/technology/",    "tec"),
+    ("/tech/",          "tec"),
+    ("/science/",       "tec"),
+    ("/health/",        "hlt"),
+    ("/education/",     "edu"),
+    ("/crime/",         "nat"),
+    ("/politics/",      "nat"),
+    ("/world/",         "nat"),
+    ("/international/", "nat"),
+    ("/defence/",       "nat"),
+    ("/defense/",       "nat"),
+    ("/india/",         "nat"),
+    ("/national/",      "nat"),
+]
+
+
+def url_derived_category(article_url: str, feed_category: str) -> str:
+    """Return feed_category unless the article URL signals a different category."""
+    url_lower = article_url.lower()
+    for path_fragment, cat in URL_CATEGORY_SIGNALS:
+        if path_fragment in url_lower:
+            if cat != feed_category:
+                print(f"  [cat-fix] {feed_category!r} → {cat!r}  ({article_url})")
+            return cat
+    return feed_category
+
 
 # ---------------------------------------------------------------------------
 # Category normalization
@@ -137,21 +175,34 @@ CATEGORY_MAP = {
     "other": "general",
 }
 
+# pol/cri/int/def map to nat; stk to bus; sci to tec (plan 25.3)
 CATEGORY_SHORT = {
     "national": "nat", "trending": "nat", "general": "nat",
-    "politics": "pol",
-    "business": "bus", "finance": "bus", "economy": "bus",
+    "politics": "nat", "crime": "nat", "world": "nat", "international": "nat", "defense": "nat",
+    "business": "bus", "finance": "bus", "economy": "bus", "stock": "bus",
     "sports": "spt", "cricket": "spt",
     "entertainment": "ent", "bollywood": "ent",
-    "technology": "tec", "tech": "tec", "ai": "tec", "gaming": "tec",
+    "technology": "tec", "tech": "tec", "ai": "tec", "gaming": "tec", "science": "tec", "space": "tec", "environment": "tec",
     "health": "hlt", "lifestyle": "hlt", "wellness": "hlt",
-    "world": "int", "international": "int",
-    "crime": "cri",
     "education": "edu",
-    "science": "sci", "space": "sci", "environment": "sci",
-    "defense": "def",
-    "stock": "stk",
 }
+
+# Hindi stopwords for title normalization (plan 26.3)
+HINDI_STOPWORDS = frozenset({
+    "का", "की", "के", "को", "में", "से", "पर", "तक", "द्वारा", "के लिए",
+    "है", "हैं", "था", "थे", "था", "थी", "हो", "होता", "होती", "होते",
+    "यह", "वह", "इस", "उस", "जो", "कि", "क्या", "कैसे", "कब", "कहाँ",
+    "और", "या", "पर", "लेकिन", "तो", "भी", "ही", "सिर्फ", "बस",
+    "न्यूज़", "खबर", "समाचार", "रिपोर्ट", "दावा", "कहा", "बोला",
+    "मिली", "मिला", "हुआ", "हुई", "कर", "किया", "किए", "गया", "गई",
+    "दिया", "दी", "लिया", "ली", "पड़ा", "पड़ी",
+    "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of",
+    "is", "are", "was", "were", "news", "report", "says",
+})
+
+# Quality gate (plan 26.4)
+MIN_DESC_LEN = 250
+TOP_TRENDING_CATEGORIES = {"spt", "ent", "nat"}
 
 # ---------------------------------------------------------------------------
 # Source name normalization
@@ -242,6 +293,17 @@ def short_category(slug: str) -> str:
     return CATEGORY_SHORT.get(slug, "nat")
 
 
+def normalize_title(title: str) -> str:
+    """Normalize title for dedup and trending clustering (plan 26.2)."""
+    if not title or not title.strip():
+        return ""
+    t = title.lower().strip()
+    t = re.sub(r"[^\w\s\u0900-\u097F]", "", t)
+    words = t.split()
+    words = [w for w in words if w not in HINDI_STOPWORDS and len(w) > 1]
+    return " ".join(words)
+
+
 def normalize_source(raw: str) -> str:
     key = raw.strip().lower()
     if key in SOURCE_NORMALIZE:
@@ -255,7 +317,9 @@ def normalize_source(raw: str) -> str:
 
 
 def make_article_id(title: str, source: str) -> str:
-    normalized = (title.strip().lower() + source.strip().lower()).encode("utf-8")
+    """Use normalized title for consistent dedup across providers."""
+    norm_title = normalize_title(title) or title.strip().lower()
+    normalized = (norm_title + source.strip().lower()).encode("utf-8")
     return hashlib.sha256(normalized).hexdigest()[:32]
 
 
@@ -332,7 +396,7 @@ def fetch_currentsapi_latest() -> list[dict]:
         articles.append({
             "id": article_id,
             "title": title,
-            "description": (item.get("description") or "")[:500],
+            "description": clean_html(item.get("description") or "")[:DESC_MAX_LEN],
             "imageUrl": item.get("image") or None,
             "articleUrl": item.get("url") or "",
             "publishedAt": published,
@@ -383,7 +447,7 @@ def fetch_newsdata_category(category: str) -> list[dict]:
         articles.append({
             "id": article_id,
             "title": title,
-            "description": (item.get("description") or "")[:500],
+            "description": clean_html(item.get("description") or "")[:DESC_MAX_LEN],
             "imageUrl": item.get("image_url") or None,
             "articleUrl": item.get("link") or "",
             "publishedAt": published,
@@ -441,7 +505,7 @@ def fetch_contextualweb_query(query: str, target_category: str) -> list[dict]:
         articles.append({
             "id": article_id,
             "title": title,
-            "description": (item.get("description") or "")[:500],
+            "description": clean_html(item.get("description") or "")[:DESC_MAX_LEN],
             "imageUrl": image_url,
             "articleUrl": item.get("url") or "",
             "publishedAt": published,
@@ -523,16 +587,18 @@ WHITESPACE_RE = re.compile(r"\s+")
 
 
 def clean_html(text: str) -> str:
-    """Strip HTML tags, decode entities, collapse whitespace."""
-    text = HTML_TAG_RE.sub(" ", text)
-    text = html.unescape(text)
+    """Strip HTML tags, decode entities, collapse whitespace.
+    Two-pass: strip tags → unescape entities → strip any tags that were entity-encoded."""
+    text = HTML_TAG_RE.sub(" ", text)       # strip literal <tags>
+    text = html.unescape(text)              # decode &lt; &gt; &amp; &lsquo; etc.
+    text = HTML_TAG_RE.sub(" ", text)       # strip tags that were entity-encoded (&lt;p&gt;)
     return WHITESPACE_RE.sub(" ", text).strip()
 
 
 def is_good_description(text: str) -> bool:
     cleaned = clean_html(text)
     length = len(cleaned)
-    if length < 200 or length > DESC_MAX_LEN:
+    if length < MIN_DESC_LEN or length > DESC_MAX_LEN:
         return False
     html_ratio = len(HTML_TAG_RE.findall(text)) / max(len(text), 1)
     return html_ratio < 0.3
@@ -670,7 +736,7 @@ def fetch_single_rss_feed(feed_config: dict, seen_urls: set[str]) -> tuple[list[
     }
 
     try:
-        feed = feedparser.parse(url)
+        feed = feedparser.parse(url, request_headers={"User-Agent": RSS_USER_AGENT})
     except Exception as e:
         print(f"[ERROR] RSS {source_hint} ({category}): {e}")
         return [], metrics
@@ -738,7 +804,7 @@ def fetch_single_rss_feed(feed_config: dict, seen_urls: set[str]) -> tuple[list[
             val = c.get("value", "")
             if len(val) > len(raw_desc):
                 raw_desc = val
-        description = clean_html(raw_desc)[:500]
+        description = clean_html(raw_desc)[:DESC_MAX_LEN]
 
         if is_good_description(raw_desc):
             good_descriptions += 1
@@ -750,6 +816,7 @@ def fetch_single_rss_feed(feed_config: dict, seen_urls: set[str]) -> tuple[list[
         source_norm = normalize_source(source_hint)
         article_id = make_article_id(title, source_norm)
         published = parse_rss_date(entry)
+        resolved_category = url_derived_category(article_url, category)
 
         articles.append({
             "id": article_id,
@@ -759,7 +826,7 @@ def fetch_single_rss_feed(feed_config: dict, seen_urls: set[str]) -> tuple[list[
             "articleUrl": article_url,
             "publishedAt": published,
             "sourceName": source_norm,
-            "category": category,
+            "category": resolved_category,
             "_provider": "rss",
         })
 
@@ -841,16 +908,78 @@ def save_cache(ids: set[str]):
 
 
 # ---------------------------------------------------------------------------
+# Trending algorithm (plan 26)
+# ---------------------------------------------------------------------------
+
+SOURCE_QUALITY = {
+    "Times of India": 1, "NDTV": 1, "Reuters": 1, "BBC": 1, "The Hindu": 1,
+    "ABP Live": 1, "TV9 Hindi": 1, "India TV": 1, "Aaj Tak": 1,
+}
+
+
+def time_decay_score(article: dict) -> float:
+    """Higher for more recent. 1.0 at now, decays over 24h (plan 26.5)."""
+    pub = article.get("publishedAt")
+    if not pub:
+        return 0.5
+    ts = pub.timestamp() if hasattr(pub, "timestamp") else pub / 1000
+    age_hours = (datetime.now(timezone.utc).timestamp() - ts) / 3600
+    return max(0.1, 2 ** (-age_hours / 6))
+
+
+def best_article(articles: list[dict]) -> dict:
+    """Pick best article from cluster: source quality, time decay, desc length (plan 26.6)."""
+    return max(articles, key=lambda a: (
+        SOURCE_QUALITY.get(a.get("sourceName", ""), 0),
+        time_decay_score(a),
+        len(a.get("description", "")),
+    ))
+
+
+def compute_trending(articles: list[dict]) -> list[dict]:
+    """
+    Mark trending articles with "tr": 1 (plan 26.7).
+    24h filter, cluster by normalized title, freq >= 2 distinct sources.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    recent = [a for a in articles if (a.get("publishedAt") or datetime.min.replace(tzinfo=timezone.utc)) >= cutoff]
+    recent = [a for a in recent if a.get("category") in TOP_TRENDING_CATEGORIES]
+
+    clusters: dict[str, list[dict]] = {}
+    for a in recent:
+        key = normalize_title(a.get("title", ""))
+        if not key:
+            continue
+        clusters.setdefault(key, []).append(a)
+
+    trending_ids = set()
+    for key, group in clusters.items():
+        sources = {a.get("sourceName", "") for a in group}
+        if len(sources) >= 2:
+            best = best_article(group)
+            trending_ids.add(best["id"])
+
+    for a in articles:
+        if a["id"] in trending_ids:
+            a["tr"] = 1
+
+    print(f"Trending: {len(trending_ids)} articles marked | "
+          f"{len(recent)} recent in {len(clusters)} clusters | "
+          f"{sum(1 for g in clusters.values() if len({a.get('sourceName','') for a in g}) >= 2)} clusters qualified")
+    return articles
+
+
+# ---------------------------------------------------------------------------
 # Firebase upload
 # ---------------------------------------------------------------------------
 
 def upload_bundles(db: firestore.Client, articles: list[dict], cached_ids: set[str]) -> int:
     """
-    Bundle fresh articles (up to 30 per document) and write to article_bundles.
+    Bundle fresh articles (up to 50 per document) and write to article_bundles.
     Each bundle document uses short field names to minimise Firestore read bytes:
       ts  — epoch-millis of the newest article in the bundle
       c   — most common short category code in the bundle
-      a   — array of article maps with keys: i, t, d, img, u, p, s
+      a   — array of article maps with keys: i, t, d, img, u, p, s, c, tr (tr=trending)
     Returns the total number of fresh articles written.
     """
     new_articles = [a for a in articles if a["id"] not in cached_ids]
@@ -858,7 +987,13 @@ def upload_bundles(db: firestore.Client, articles: list[dict], cached_ids: set[s
         print("[INFO] No new articles to upload")
         return 0
 
-    bundle_size = 30
+    def _ts(a):
+        p = a.get("publishedAt")
+        if p is None:
+            return 0
+        return p.timestamp() if hasattr(p, "timestamp") else (p / 1000 if isinstance(p, (int, float)) else 0)
+    new_articles.sort(key=_ts, reverse=True)
+    bundle_size = 50
     written = 0
     batch = db.batch()
     batch_ops = 0
@@ -879,7 +1014,7 @@ def upload_bundles(db: firestore.Client, articles: list[dict], cached_ids: set[s
         for a in chunk:
             pub = a["publishedAt"]
             pub_ms = int(pub.timestamp() * 1000) if hasattr(pub, "timestamp") else int(pub)
-            article_array.append({
+            item = {
                 "i": a["id"],
                 "t": a["title"],
                 "d": a["description"],
@@ -888,7 +1023,10 @@ def upload_bundles(db: firestore.Client, articles: list[dict], cached_ids: set[s
                 "p": pub_ms,
                 "s": a["sourceName"],
                 "c": a["category"],
-            })
+            }
+            if a.get("tr") == 1:
+                item["tr"] = 1
+            article_array.append(item)
             written += 1
 
         bundle_id = f"{newest_ts}_{dominant_cat}_{chunk[0]['id'][:8]}"
@@ -1032,8 +1170,8 @@ def main():
     within_run_dups = raw_total - len(unique_articles)
     print(f"\nTotal unique articles this run: {len(unique_articles)}")
 
-    # --- Article verification gate ---
-    # Applies to ALL sources (RSS + API). Gates: valid image + description >= 300 chars.
+    # --- Quality gate (plan 26.4) ---
+    # MIN_DESC_LEN=250; description truncated to max 500 chars
     verified = []
     gate_no_img = 0
     gate_short_desc = 0
@@ -1042,13 +1180,17 @@ def main():
         if not _is_valid_image_url(img):
             gate_no_img += 1
             continue
-        if len((a.get("description") or "").strip()) < 300:
+        desc_len = len((a.get("description") or "").strip())
+        if desc_len < MIN_DESC_LEN:
             gate_short_desc += 1
             continue
         verified.append(a)
-    print(f"Verification gate: {len(verified)} passed | "
+    print(f"Quality gate: {len(verified)} passed | "
           f"{gate_no_img} dropped (bad image) | "
-          f"{gate_short_desc} dropped (desc < 300 chars)")
+          f"{gate_short_desc} dropped (desc < {MIN_DESC_LEN})")
+
+    # --- Compute trending (plan 26) ---
+    verified = compute_trending(verified)
 
     # --- Upload bundles ---
     written = upload_bundles(db, verified, cached_ids)
