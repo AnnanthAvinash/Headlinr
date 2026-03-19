@@ -38,9 +38,6 @@ jobs:
 
       - name: Run news fetcher
         env:
-          CURRENTSAPI_KEY: ${{ secrets.CURRENTSAPI_KEY }}
-          NEWSDATA_KEY: ${{ secrets.NEWSDATA_KEY }}
-          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/firebase-sa.json
         run: python scripts/fetch_news.py
 

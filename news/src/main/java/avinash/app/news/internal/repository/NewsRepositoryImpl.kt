@@ -33,7 +33,7 @@ class NewsRepositoryImpl @Inject constructor(
         private const val PAGE_SIZE = 20
 
         private val CATEGORY_EXPANSION = mapOf(
-            "nat" to listOf("nat", "pol", "cri", "int", "def"),
+            "nat" to listOf("nat", "pol", "cri"),
             "bus" to listOf("bus", "stk"),
             "tec" to listOf("tec", "sci"),
         )
