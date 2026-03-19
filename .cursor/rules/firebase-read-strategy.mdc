@@ -31,9 +31,8 @@ Legacy collections (`news_articles`, `categories`, `rss_metrics`) deleted via on
 | Parameter | Value | Why |
 |-----------|-------|-----|
 | `MIN_SYNC_INTERVAL_MS` | 30 sec | Cooldown between fetches — prevents spamming reads |
-| `AUTO_REFRESH_INTERVAL_MS` | 30 min | Matches GitHub Actions schedule — silent, in viewModelScope |
 
-Old constants (`BATCH_SIZE`, `MAX_SYNC_CAP`, `STALE_THRESHOLD_MS`) removed — replaced by `FetchQuotaManager`.
+Old constants (`BATCH_SIZE`, `MAX_SYNC_CAP`, `STALE_THRESHOLD_MS`, `AUTO_REFRESH_INTERVAL_MS`) removed — replaced by `FetchQuotaManager`. Auto-refresh removed from ViewModel; syncs happen only on APP_OPEN and PULL_TO_REFRESH.
 
 ## Quota System (FetchQuotaManager.kt)
 
@@ -71,20 +70,20 @@ Old constants (`BATCH_SIZE`, `MAX_SYNC_CAP`, `STALE_THRESHOLD_MS`) removed — r
 2. **Time-bucket quota** — per-IST-window fetch limits (MORNING 20, AFTERNOON 8, EVENING 12, NIGHT 8, LATE_NIGHT 2)
 3. **Daily cap** = 50 fetches/day — hard limit, overflow uses monthly rollover bucket
 4. **Monthly cap** = 1,300 — unused daily fetches roll over, resets each month
-5. **Auto-refresh** = 30 min — silent, foreground only (viewModelScope)
-6. **Room-empty bypass** — first install always fetches, deducts from daily quota
+5. **Room-empty bypass** — first install always fetches, deducts from daily quota
+6. **Snackbar feedback** — ViewModel shows user-facing messages for COOLDOWN, BUCKET_EXHAUSTED, QUOTA_EXHAUSTED via `_snackbarMessage` StateFlow
 
-*Note: Category sync guard removed — categories are now seeded locally from `LocalCategories.kt`, zero Firebase reads.*
+*Note: Auto-refresh removed. Syncs only on APP_OPEN and PULL_TO_REFRESH. Category sync guard removed — categories are now seeded locally from `LocalCategories.kt`, zero Firebase reads.*
 
 ## Read Budget Per User Per Day (bundle system — 1 read = 50 articles)
 
-| User Type | Session | Pulls | Auto-refreshes | Bundle Reads/Day | Approx. Articles |
-|-----------|---------|-------|----------------|------------------|------------------|
-| Light (15 min) | 15 min | 1 | 0 | ~2 | ~100 |
-| Normal (1 hr) | 1 hr | 2 | 1 | ~4 | ~200 |
-| Heavy (3-4 hr) | 3 hr | 5 | 5 | ~11 | ~550 |
-| Power (8 hr) | 8 hr | 10 | 16 | ~22 | ~1,100 |
-| First-time (full) | 30 min | 1 | 0 | ~6 | ~300 |
+| User Type | Session | Pulls | Bundle Reads/Day | Approx. Articles |
+|-----------|---------|-------|------------------|------------------|
+| Light (15 min) | 15 min | 1 | ~2 | ~100 |
+| Normal (1 hr) | 1 hr | 2 | ~3 | ~150 |
+| Heavy (3-4 hr) | 3 hr | 5 | ~6 | ~300 |
+| Power (8 hr) | 8 hr | 10 | ~11 | ~550 |
+| First-time (full) | 30 min | 1 | ~6 | ~300 |
 
 ## DAU Capacity on Free Tier
 

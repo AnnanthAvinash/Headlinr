@@ -16,12 +16,12 @@ import avinash.app.news.api.NewsRepository
 import avinash.app.news.api.model.Category
 import avinash.app.news.api.model.NewsArticle
 import avinash.app.news.api.model.SourceEntry
+import avinash.app.news.api.model.SyncResult
 import avinash.app.news.api.model.SyncTrigger
 import avinash.app.news.internal.remote.RemoteConfigManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -50,7 +50,6 @@ class NewsViewModel @Inject constructor(
         private val KEY_SELECTED_CATEGORIES = stringSetPreferencesKey("selected_categories")
         private val KEY_RECENT_SEARCHES = stringPreferencesKey("recent_searches")
         private const val MAX_RECENT = 10
-        private const val AUTO_REFRESH_INTERVAL_MS = 30 * 60 * 1000L
     }
 
     val remoteConfig: RemoteConfigManager get() = newsRepository.getRemoteConfig()
@@ -60,6 +59,9 @@ class NewsViewModel @Inject constructor(
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    private val _snackbarMessage = MutableStateFlow<String?>(null)
+    val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
 
     private val _trendingArticles = MutableStateFlow<List<NewsArticle>>(emptyList())
     val trendingArticles: StateFlow<List<NewsArticle>> = _trendingArticles.asStateFlow()
@@ -121,17 +123,6 @@ class NewsViewModel @Inject constructor(
         loadSelectedCategorySlugs()
         initialSync()
         loadRecentSearches()
-        startAutoRefresh()
-    }
-
-    private fun startAutoRefresh() {
-        viewModelScope.launch {
-            while (true) {
-                delay(AUTO_REFRESH_INTERVAL_MS)
-                newsRepository.refreshNews(SyncTrigger.APP_OPEN)
-                loadTrendingArticles()
-            }
-        }
     }
 
     fun selectCategory(slug: String?) {
@@ -147,9 +138,9 @@ class NewsViewModel @Inject constructor(
             _isRefreshing.value = true
             remoteConfig.fetchAndActivate()
             newsRepository.refreshCategories()
-            newsRepository.refreshNews(SyncTrigger.APP_OPEN).onFailure { e ->
-                _errorMessage.value = e.message ?: "Sync failed"
-            }
+            newsRepository.refreshNews(SyncTrigger.APP_OPEN)
+                .onSuccess { handleSyncResult(it) }
+                .onFailure { e -> _errorMessage.value = e.message ?: "Sync failed" }
             loadTrendingArticles()
             loadTrendingTopics()
             loadAvailableSources()
@@ -186,9 +177,9 @@ class NewsViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             _errorMessage.value = null
-            newsRepository.refreshNews(SyncTrigger.PULL_TO_REFRESH).onFailure { e ->
-                _errorMessage.value = e.message ?: "Refresh failed"
-            }
+            newsRepository.refreshNews(SyncTrigger.PULL_TO_REFRESH)
+                .onSuccess { handleSyncResult(it) }
+                .onFailure { e -> _errorMessage.value = e.message ?: "Refresh failed" }
             loadTrendingArticles()
             loadAvailableSources()
             _isRefreshing.value = false
@@ -202,6 +193,19 @@ class NewsViewModel @Inject constructor(
 
     fun clearError() {
         _errorMessage.value = null
+    }
+
+    fun clearSnackbar() {
+        _snackbarMessage.value = null
+    }
+
+    private fun handleSyncResult(result: SyncResult) {
+        when (result) {
+            SyncResult.COOLDOWN -> _snackbarMessage.value = "You already have the latest news"
+            SyncResult.BUCKET_EXHAUSTED -> _snackbarMessage.value = "Refresh available after next time window"
+            SyncResult.QUOTA_EXHAUSTED -> _snackbarMessage.value = "Daily refresh limit reached"
+            SyncResult.SUCCESS, SyncResult.SKIPPED -> { }
+        }
     }
 
     // --- Bookmarks ---
