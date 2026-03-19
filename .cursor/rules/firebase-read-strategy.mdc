@@ -30,11 +30,32 @@ Legacy collections (`news_articles`, `categories`, `rss_metrics`) deleted via on
 
 | Parameter | Value | Why |
 |-----------|-------|-----|
-| `MIN_SYNC_INTERVAL_MS` | 10 min | Pull-to-refresh cooldown — prevents spamming reads |
-| `BATCH_SIZE` | 50 | Incremental sync target — needs ceil(50/50) = 1 bundle read |
-| `MAX_SYNC_CAP` | 300 | Full sync target — needs ceil(300/50) = 6 bundle reads |
-| `STALE_THRESHOLD_MS` | 24 hours | Triggers full sync (300) vs incremental sync (50) |
+| `MIN_SYNC_INTERVAL_MS` | 30 sec | Cooldown between fetches — prevents spamming reads |
 | `AUTO_REFRESH_INTERVAL_MS` | 30 min | Matches GitHub Actions schedule — silent, in viewModelScope |
+
+Old constants (`BATCH_SIZE`, `MAX_SYNC_CAP`, `STALE_THRESHOLD_MS`) removed — replaced by `FetchQuotaManager`.
+
+## Quota System (FetchQuotaManager.kt)
+
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| `DAILY_CAP` | 50 fetches/day | Hard daily limit per device |
+| `MONTHLY_CAP` | 1,300 | Rollover bucket for unused daily fetches |
+| Time buckets | MORNING(20), AFTERNOON(8), EVENING(12), NIGHT(8), LATE_NIGHT(2) | Distributes fetches across IST time windows |
+
+### Sync Flow (SyncManager.syncNews)
+
+1. Room empty → force fetch (bypass quota), deduct from daily — first install path
+2. Last sync < 30 sec → return `SyncResult.COOLDOWN`
+3. `canFetch()` true → fetch from Firebase, `recordFetch()` only after successful upsert
+4. `canFetch()` false → return `BUCKET_EXHAUSTED` or `QUOTA_EXHAUSTED`
+
+### API Signatures
+
+- `SyncManager.syncNews(trigger: SyncTrigger): Result<SyncResult>`
+- `NewsRepository.refreshNews(trigger: SyncTrigger): Result<SyncResult>`
+- `SyncTrigger` enum: `APP_OPEN`, `PULL_TO_REFRESH`
+- `SyncResult` enum: `SUCCESS`, `COOLDOWN`, `BUCKET_EXHAUSTED`, `QUOTA_EXHAUSTED`, `SKIPPED`
 
 ## Deletion Policy (Firebase + Room)
 
@@ -44,12 +65,14 @@ Legacy collections (`news_articles`, `categories`, `rss_metrics`) deleted via on
 - **Task F2 (pending)**: Full deletion policy redesign for both Firebase and Room. Not yet designed or approved.
 - Until F2 is done, both Firebase (`article_bundles`) and Room accumulate all articles indefinitely.
 
-## Four Safety Guards
+## Safety Guards
 
-1. **Pull-to-refresh cooldown** = 10 min — skip if lastSync < 10 min ago, use Room cache
-2. **Max sync cap** = 300 articles (6 bundle reads) — only on first open or after 24h gap
-3. **Incremental batch** = 50 articles (1 bundle read) — keeps each sync lightweight
-4. **Auto-refresh** = 30 min — silent, foreground only (viewModelScope)
+1. **Cooldown** = 30 sec — skip if lastSync < 30s ago, return `SyncResult.COOLDOWN`
+2. **Time-bucket quota** — per-IST-window fetch limits (MORNING 20, AFTERNOON 8, EVENING 12, NIGHT 8, LATE_NIGHT 2)
+3. **Daily cap** = 50 fetches/day — hard limit, overflow uses monthly rollover bucket
+4. **Monthly cap** = 1,300 — unused daily fetches roll over, resets each month
+5. **Auto-refresh** = 30 min — silent, foreground only (viewModelScope)
+6. **Room-empty bypass** — first install always fetches, deducts from daily quota
 
 *Note: Category sync guard removed — categories are now seeded locally from `LocalCategories.kt`, zero Firebase reads.*
 
@@ -86,8 +109,8 @@ Legacy collections (`news_articles`, `categories`, `rss_metrics`) deleted via on
 ## Rules for Any Code Change
 
 - NEVER add a new Firebase read path without calculating its impact on the daily budget
-- NEVER reduce sync intervals below current values without recalculating DAU capacity
-- NEVER remove or weaken any of the 4 safety guards
+- NEVER reduce sync cooldown below 30 seconds without recalculating DAU capacity
+- NEVER remove or weaken any of the safety guards (cooldown, bucket quota, daily cap, monthly cap)
 - NEVER add deletion calls to `article_bundles` until Task F2 (deletion policy redesign) is designed and approved
 - Room is the SINGLE SOURCE OF TRUTH — UI never reads Firestore directly
 - Any new sync feature must show reads/day math before implementation

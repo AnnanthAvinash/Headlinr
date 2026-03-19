@@ -1,4 +1,4 @@
-package avinash.app.news.internal.sync
+package avinash.app.news.api.model
 
 enum class SyncResult {
     SUCCESS,

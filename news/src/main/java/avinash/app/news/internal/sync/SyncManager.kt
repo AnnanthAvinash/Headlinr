@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import avinash.app.news.api.model.SyncResult
+import avinash.app.news.api.model.SyncTrigger
 import avinash.app.news.internal.local.LocalCategories
 import avinash.app.news.internal.local.dao.ArticleDao
 import avinash.app.news.internal.local.dao.CategoryDao
@@ -14,7 +16,6 @@ import avinash.app.news.internal.remote.FirebaseNewsSource
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,51 +26,67 @@ class SyncManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firebaseNewsSource: FirebaseNewsSource,
     private val articleDao: ArticleDao,
-    private val categoryDao: CategoryDao
+    private val categoryDao: CategoryDao,
+    private val fetchQuotaManager: FetchQuotaManager
 ) {
     companion object {
         private val KEY_LAST_SYNC = longPreferencesKey("last_sync_timestamp")
         private val KEY_CATEGORY_VERSION = intPreferencesKey("category_version")
 
-        private const val MIN_SYNC_INTERVAL_MS = 10 * 60 * 1000L // 10 minutes
-        private const val STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000L // 24 hours
-        private const val BATCH_SIZE = 50L
-        private const val MAX_SYNC_CAP = 300L
+        private const val MIN_SYNC_INTERVAL_MS = 30_000L // 30 seconds
     }
 
-    suspend fun syncNews(): Result<Unit> = runCatching {
+    suspend fun syncNews(trigger: SyncTrigger): Result<SyncResult> = runCatching {
         val now = System.currentTimeMillis()
         val lastSync = getLastSyncTimestamp()
-
         val roomEmpty = articleDao.getCount() == 0
-
-        if (!roomEmpty && lastSync > 0 && (now - lastSync) < MIN_SYNC_INTERVAL_MS) {
-            Timber.d("Skipping sync — last sync was ${(now - lastSync) / 1000}s ago")
-            return Result.success(Unit)
-        }
 
         seedCategoriesIfNeeded()
 
-        val gap = now - lastSync
-        val needsFullSync = lastSync == 0L || gap > STALE_THRESHOLD_MS || roomEmpty
-
-        if (needsFullSync) {
-            Timber.d("Full sync required — gap: ${TimeUnit.MILLISECONDS.toHours(gap)}h")
-            val articles = firebaseNewsSource.fetchLatestArticles(MAX_SYNC_CAP)
+        if (roomEmpty) {
+            Timber.d("Room empty — force fetch (first install), bypassing quota")
+            val articles = firebaseNewsSource.fetchLatestArticles()
             if (articles.isNotEmpty()) {
                 articleDao.upsertAll(articles)
-                Timber.d("Full sync: ${articles.size} articles")
+                Timber.d("First-install sync: ${articles.size} articles")
             }
-        } else {
-            Timber.d("Incremental sync — fetching since last sync")
-            val articles = firebaseNewsSource.fetchArticlesSince(lastSync, BATCH_SIZE)
-            if (articles.isNotEmpty()) {
-                articleDao.upsertAll(articles)
-                Timber.d("Incremental sync: ${articles.size} articles")
+            fetchQuotaManager.recordFetch()
+            updateLastSyncTimestamp(now)
+            return Result.success(SyncResult.SUCCESS)
+        }
+
+        if (lastSync > 0 && (now - lastSync) < MIN_SYNC_INTERVAL_MS) {
+            Timber.d("Cooldown — last sync was ${(now - lastSync) / 1000}s ago")
+            return Result.success(SyncResult.COOLDOWN)
+        }
+
+        if (!fetchQuotaManager.canFetch()) {
+            val remaining = fetchQuotaManager.getRemainingInBucket()
+            val dailyRemaining = fetchQuotaManager.getRemainingDaily()
+            return if (remaining == 0 && dailyRemaining > 0) {
+                Timber.d("Bucket exhausted for current time window")
+                Result.success(SyncResult.BUCKET_EXHAUSTED)
+            } else {
+                Timber.d("Daily quota exhausted")
+                Result.success(SyncResult.QUOTA_EXHAUSTED)
             }
         }
 
+        Timber.d("Fetching articles — trigger: ${trigger.name}")
+        val articles = if (lastSync > 0) {
+            firebaseNewsSource.fetchArticlesSince(lastSync)
+        } else {
+            firebaseNewsSource.fetchLatestArticles()
+        }
+
+        if (articles.isNotEmpty()) {
+            articleDao.upsertAll(articles)
+            Timber.d("Synced ${articles.size} articles")
+        }
+
+        fetchQuotaManager.recordFetch()
         updateLastSyncTimestamp(now)
+        SyncResult.SUCCESS
     }
 
     private suspend fun seedCategoriesIfNeeded() {

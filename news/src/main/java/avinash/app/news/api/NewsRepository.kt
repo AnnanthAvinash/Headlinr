@@ -4,13 +4,15 @@ import androidx.paging.PagingData
 import avinash.app.news.api.model.Category
 import avinash.app.news.api.model.NewsArticle
 import avinash.app.news.api.model.SourceEntry
+import avinash.app.news.api.model.SyncResult
+import avinash.app.news.api.model.SyncTrigger
 import avinash.app.news.internal.remote.RemoteConfigManager
 import kotlinx.coroutines.flow.Flow
 
 interface NewsRepository {
     fun getNewsPaged(category: String? = null, source: String? = null): Flow<PagingData<NewsArticle>>
     fun getCategories(): Flow<List<Category>>
-    suspend fun refreshNews(): Result<Unit>
+    suspend fun refreshNews(trigger: SyncTrigger): Result<SyncResult>
     suspend fun refreshCategories(): Result<Unit>
 
     suspend fun getArticleById(id: String): NewsArticle?
