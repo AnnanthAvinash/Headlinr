@@ -20,6 +20,8 @@ navigationCompose = "2.8.9"
 timber = "5.0.1"
 datastore = "1.1.4"
 googleAds = "23.6.0"
+mockk = "1.13.13"
+coroutinesTest = "1.9.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -73,6 +75,10 @@ datastore-preferences = { group = "androidx.datastore", name = "datastore-prefer
 
 # Google Mobile Ads
 google-ads = { group = "com.google.android.gms", name = "play-services-ads", version.ref = "googleAds" }
+
+# Testing
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
