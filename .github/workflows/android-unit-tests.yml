@@ -1,11 +1,9 @@
-# Runs JVM unit tests on PRs to main and on pushes to main (direct commits) so CI stays green.
+# Runs JVM unit tests on pull requests targeting main.
 # Enable: Settings → Branches → Branch protection → Require status checks → "Android unit tests"
 name: Android unit tests
 
 on:
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
 
 concurrency:
