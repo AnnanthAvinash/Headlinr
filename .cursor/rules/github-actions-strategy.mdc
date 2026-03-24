@@ -143,7 +143,7 @@ Per-provider table (raw→dedup→quality→fresh), per-category breakdown with 
 | File | Purpose |
 |------|---------|
 | `.github/workflows/fetch-news.yml` | Cron workflow, pip install, run script, commit metrics |
-| `.github/workflows/android-unit-tests.yml` | PR + push to `main`: Gradle `testDebugUnitTest` (JVM unit tests; ~minutes/run) |
+| `.github/workflows/android-unit-tests.yml` | PRs to `main`: Gradle `testDebugUnitTest` (JVM unit tests; ~minutes/run) |
 | `.github/workflows/cleanup-firebase.yml` | One-time manual trigger to delete legacy collections |
 | `scripts/fetch_news.py` | Fetch from 29 Hindi RSS feeds (12 sources), normalize, deduplicate, bundle, upload to Firebase |
 | `scripts/cleanup_firebase.py` | Batch-delete news_articles, categories, rss_metrics collections |

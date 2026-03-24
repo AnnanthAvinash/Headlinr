@@ -1,11 +1,9 @@
-# Runs JVM unit tests on every PR (and on main) so merges can require a green check.
+# Runs JVM unit tests on pull requests targeting main so merges can require a green check.
 # Enable: Settings → Branches → Branch protection → Require status checks → "Android unit tests"
 name: Android unit tests
 
 on:
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
 
 concurrency:
