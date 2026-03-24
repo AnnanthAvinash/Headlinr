@@ -78,6 +78,7 @@ GitHub Actions (every 30 min) → Firebase Firestore (article_bundles) → news 
 | File | Purpose |
 |------|---------|
 | `.github/workflows/fetch-news.yml` | Cron workflow (*/20 + IST gate), 60 runs/day peak-weighted, uploads article bundles |
+| `.github/workflows/android-unit-tests.yml` | PR + push to `main`: `./gradlew testDebugUnitTest` (JVM unit tests; placeholder `google-services.json` in CI) |
 | `.github/workflows/cleanup-firebase.yml` | One-time manual trigger, deletes legacy Firebase collections |
 | `scripts/fetch_news.py` | Fetches from 29 Hindi RSS feeds from 12 sources (API providers disabled), bundles, uploads to Firebase |
 | `scripts/cleanup_firebase.py` | Batch-deletes `news_articles`, `categories`, `rss_metrics` |
