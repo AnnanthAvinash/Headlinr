@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Temporary branch-push probe only — safe to delete after you finish testing main pushes / branch rules -->
+    <string name="branch_push_probe" translatable="false">hello stupid</string>
+</resources>
