@@ -1159,64 +1159,68 @@ def upload_bundles(db: firestore.Client, articles: list[dict], cached_ids: set[s
 # Main
 # ---------------------------------------------------------------------------
 
-METRICS_CSV = Path(__file__).resolve().parent.parent / "logs" / "run_metrics.csv"
+METRICS_FILE = Path(__file__).resolve().parent.parent / "logs" / "run_metrics.txt"
 
-
+CATEGORY_NAMES = {
+    "nat": "दुनिया",
+    "spt": "खेल",
+    "ent": "मनोरंजन",
+    "bus": "व्यापार",
+    "tec": "तकनीक",
+    "hlt": "स्वास्थ्य",
+    "edu": "शिक्षा",
+}
 CATEGORY_CODES = ["nat", "spt", "ent", "bus", "tec", "hlt", "edu"]
 PROVIDERS = ["rss"]
 
 
-def append_run_metrics(
-    tier_label: str,
-    raw_total: int,
-    within_run_dups: int,
-    unique_this_run: int,
-    cross_run_dups: int,
+def update_run_metrics(
     fresh_unique: int,
-    all_articles: list[dict],
     trending_count: int = 0,
     cat_counts: dict[str, int] | None = None,
-    gate_dropped_image: int = 0,
-    gate_dropped_desc: int = 0,
-    duration_sec: float = 0.0,
 ):
-    """Append one row of run metrics to the CSV log file."""
-    provider_counts = Counter(a.get("_provider", "unknown") for a in all_articles)
+    """Update cumulative metrics file with this run's counts."""
     cat_counts = cat_counts or {}
-    row = {
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        "tier": tier_label,
-        "raw_total": raw_total,
-        "within_run_dups": within_run_dups,
-        "unique_this_run": unique_this_run,
-        "cross_run_dups": cross_run_dups,
-        "fresh_unique": fresh_unique,
-        "currentsapi": provider_counts.get("currentsapi", 0),
-        "rss": provider_counts.get("rss", 0),
-        "newsdata": provider_counts.get("newsdata", 0),
-        "contextualweb": provider_counts.get("contextualweb", 0),
-        "ai": provider_counts.get("ai", 0),
-        "trending_count": trending_count,
-        "per_cat_nat": cat_counts.get("nat", 0),
-        "per_cat_spt": cat_counts.get("spt", 0),
-        "per_cat_ent": cat_counts.get("ent", 0),
-        "per_cat_bus": cat_counts.get("bus", 0),
-        "per_cat_tec": cat_counts.get("tec", 0),
-        "per_cat_hlt": cat_counts.get("hlt", 0),
-        "per_cat_edu": cat_counts.get("edu", 0),
-        "gate_dropped_image": gate_dropped_image,
-        "gate_dropped_desc": gate_dropped_desc,
-        "duration_sec": round(duration_sec, 1),
-    }
-    fieldnames = list(row.keys())
-    write_header = not METRICS_CSV.exists() or METRICS_CSV.stat().st_size == 0
-    METRICS_CSV.parent.mkdir(parents=True, exist_ok=True)
-    with open(METRICS_CSV, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if write_header:
-            writer.writeheader()
-        writer.writerow(row)
-    print(f"[OK] Appended run metrics to {METRICS_CSV}")
+
+    existing = {"Total": 0, "Trending": 0, "runs": 0}
+    for code in CATEGORY_CODES:
+        existing[CATEGORY_NAMES[code]] = 0
+
+    if METRICS_FILE.exists():
+        with open(METRICS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("# Total Runs:"):
+                    existing["runs"] = int(line.split(":")[1].strip())
+                elif ":" in line and not line.startswith("#"):
+                    key, val = line.split(":", 1)
+                    key = key.strip()
+                    if key in existing:
+                        existing[key] = int(val.strip())
+
+    existing["Total"] += fresh_unique
+    existing["Trending"] += trending_count
+    existing["runs"] += 1
+    for code, count in cat_counts.items():
+        hindi_name = CATEGORY_NAMES.get(code)
+        if hindi_name:
+            existing[hindi_name] += count
+
+    METRICS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    with open(METRICS_FILE, "w", encoding="utf-8") as f:
+        f.write("# Headlinr Metrics\n")
+        f.write(f"# Updated: {timestamp} UTC\n")
+        f.write(f"# Total Runs: {existing['runs']}\n")
+        f.write("\n")
+        f.write(f"Total: {existing['Total']}\n")
+        f.write(f"Trending: {existing['Trending']}\n")
+        f.write("\n")
+        for code in CATEGORY_CODES:
+            hindi_name = CATEGORY_NAMES[code]
+            f.write(f"{hindi_name}: {existing[hindi_name]}\n")
+
+    print(f"[OK] Updated metrics: {METRICS_FILE}")
 
 
 def determine_tier() -> tuple[bool, bool]:
@@ -1413,24 +1417,12 @@ def main():
     cache_after = len(cached_ids)
     print(f"Saved {cache_after} article IDs to cache")
 
-    # --- Run metrics (AC7) ---
-    cross_run_dups = len(unique_articles) - written
-    tier_label = "rss_only"
+    # --- Run metrics ---
     cat_counts = Counter(a.get("category", "?") for a in verified)
-    duration_sec = time.time() - run_start
-    append_run_metrics(
-        tier_label=tier_label,
-        raw_total=raw_total,
-        within_run_dups=within_run_dups,
-        unique_this_run=len(unique_articles),
-        cross_run_dups=cross_run_dups,
+    update_run_metrics(
         fresh_unique=written,
-        all_articles=all_articles,
         trending_count=trending_stats.get("marked", 0),
         cat_counts=dict(cat_counts),
-        gate_dropped_image=gate_no_img,
-        gate_dropped_desc=gate_short_desc,
-        duration_sec=duration_sec,
     )
 
     # --- RSS feed summary (local print only) ---
