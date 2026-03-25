@@ -129,6 +129,8 @@ MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.
 
 Cumulative totals updated after every run. Pushed to `Logs` branch (not `main`) to avoid branch protection conflicts.
 
+Before `fetch_news.py`, the workflow fetches `origin/Logs` and restores `logs/run_metrics.txt` so totals accumulate across runs (`main` does not carry this file). After the run, metrics are copied to `/tmp`, the untracked path is removed (so `git checkout Logs` cannot fail), then committed on `Logs`. **`git stash` is not used** — stash only accepts tracked paths; the metrics file is untracked on `main`.
+
 **Format:**
 ```
 # Headlinr Metrics
