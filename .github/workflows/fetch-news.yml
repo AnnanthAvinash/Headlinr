@@ -78,6 +78,15 @@ jobs:
           restore-keys: |
             article-ids-
 
+      - name: Restore cumulative metrics from Logs branch
+        if: steps.gate.outputs.SHOULD_RUN == 'true'
+        run: |
+          git fetch origin Logs 2>/dev/null || true
+          mkdir -p logs
+          rm -f logs/run_metrics.txt
+          git show origin/Logs:logs/run_metrics.txt > logs/run_metrics.txt 2>/dev/null || true
+          if [ ! -s logs/run_metrics.txt ]; then rm -f logs/run_metrics.txt; fi
+
       - name: Write Firebase credentials
         if: steps.gate.outputs.SHOULD_RUN == 'true'
         run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/firebase-sa.json
@@ -97,10 +106,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git stash push -m "metrics" -- logs/run_metrics.txt
+          test -f logs/run_metrics.txt
+          cp logs/run_metrics.txt /tmp/run_metrics.txt
+          rm -f logs/run_metrics.txt
           git fetch origin Logs || true
           git checkout Logs 2>/dev/null || git checkout -b Logs
-          git stash pop || true
+          mkdir -p logs
+          cp /tmp/run_metrics.txt logs/run_metrics.txt
           git add logs/run_metrics.txt
           git diff --cached --quiet || git commit -m "chore: update run metrics"
           git push -u origin Logs
