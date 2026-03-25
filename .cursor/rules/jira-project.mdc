@@ -1,0 +1,15 @@
+---
+description: Jira project key and board context for Headlinr
+alwaysApply: true
+---
+
+# Jira Project
+
+- **Project key**: `HLNAPP`
+- **Project name**: HeadlinrApp
+- **Jira URL**: https://paptwanavinash.atlassian.net
+- **MCP server**: `user-mcp-atlassian`
+
+## Usage
+
+When any Jira task is needed (create issue, fetch issue, add comment, link to epic, etc.), always use project key `HLNAPP` — never ask the user for it.

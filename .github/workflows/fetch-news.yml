@@ -92,11 +92,15 @@ jobs:
         if: always() && steps.gate.outputs.SHOULD_RUN == 'true'
         run: rm -f /tmp/firebase-sa.json
 
-      - name: Commit run metrics
+      - name: Commit run metrics to Logs branch
         if: steps.gate.outputs.SHOULD_RUN == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add logs/run_metrics.csv
+          git stash push -m "metrics" -- logs/run_metrics.txt
+          git fetch origin Logs || true
+          git checkout Logs 2>/dev/null || git checkout -b Logs
+          git stash pop || true
+          git add logs/run_metrics.txt
           git diff --cached --quiet || git commit -m "chore: update run metrics"
-          git push
+          git push -u origin Logs

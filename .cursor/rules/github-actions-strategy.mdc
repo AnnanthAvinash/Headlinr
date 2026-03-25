@@ -125,14 +125,29 @@ MIN_DESC_LEN=250; description truncated to max 500 chars. Image rules unchanged.
 | `edu` | ABP Live | abplive.com/education/feed |
 | `edu` | ET Now Swadesh | hindi.etnownews.com/feeds/gns-etn-hindi-education.xml |
 
-## Run Metrics (logs/run_metrics.csv)
+## Run Metrics (logs/run_metrics.txt)
 
-Appended after every run. Columns:
-`timestamp, tier, raw_total, within_run_dups, unique_this_run, cross_run_dups, fresh_unique, currentsapi, rss, newsdata, contextualweb, ai, trending_count, per_cat_nat, per_cat_spt, per_cat_ent, per_cat_bus, per_cat_tec, per_cat_hlt, per_cat_edu, gate_dropped_image, gate_dropped_desc, duration_sec`
+Cumulative totals updated after every run. Pushed to `Logs` branch (not `main`) to avoid branch protection conflicts.
 
-Tier column now always `rss_only`. API provider columns retained for backward compatibility but always 0.
+**Format:**
+```
+# Headlinr Metrics
+# Updated: 2026-03-25 05:47:29 UTC
+# Total Runs: 150
 
-Committed and pushed by the workflow via `github-actions[bot]`.
+Total: 12345
+Trending: 456
+
+दुनिया: 1234
+खेल: 567
+मनोरंजन: 890
+व्यापार: 2345
+तकनीक: 456
+स्वास्थ्य: 234
+शिक्षा: 345
+```
+
+Each run adds its fresh article counts to the existing totals. Committed and pushed to `Logs` branch by the workflow via `github-actions[bot]`.
 
 ## Structured Summary (printed at end of each run)
 
@@ -148,7 +163,7 @@ Per-provider table (raw→dedup→quality→fresh), per-category breakdown with 
 | `scripts/fetch_news.py` | Fetch from 29 Hindi RSS feeds (12 sources), normalize, deduplicate, bundle, upload to Firebase |
 | `scripts/cleanup_firebase.py` | Batch-delete news_articles, categories, rss_metrics collections |
 | `scripts/requirements.txt` | Python deps (feedparser, google-cloud-firestore, Pillow, requests) |
-| `logs/run_metrics.csv` | Per-run metrics history |
+| `logs/run_metrics.txt` | Cumulative metrics (on `Logs` branch) |
 | `scripts/.article_cache.json` | Cross-run dedup cache (GitHub Actions cache artifact) |
 
 ## Secrets Required
